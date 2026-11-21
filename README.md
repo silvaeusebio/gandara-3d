@@ -11,7 +11,7 @@ Esta é uma versão beta: há coisas por acabar e pode ter erros.
 
 - Cerca de 3 × 4,2 km de mapa, com as ruas e os edifícios do OpenStreetMap e as altitudes reais.
 - Viadutos e passagens inferiores: as pontes ficam por cima, com rampas, e passa-se por baixo.
-- A estrada verdadeira da Gândara até Amor (cerca de 6 km), com a aldeia de Amor à volta da Rua da Serrada.
+- A estrada verdadeira da Gândara até Amor (cerca de 6 km), com a aldeia de Amor à volta da Rua da Serrada e o terreno da segunda casa modelado à mão (três casas, o muro de tijolo com o portão, o caminho de entrada).
 - O Castelo de Leiria, no extremo sul do mapa, com as muralhas, as torres e os Paços Novos; entra-se a pé pelos caminhos.
 - A Rua dos Lavradios modelada à mão, casa a casa, a partir de imagens de satélite e de rua.
 - O prédio do Tiago, com o apartamento por dentro feito a partir de um esboço (`esboco/Casa Tiago.png`).
@@ -67,6 +67,7 @@ O jogo é só HTML e JavaScript, sem instalação. Precisa de internet para ir b
 | `index.html` | o jogo (motor, carro, mota, missão, ecrã) |
 | `lavradios.js` | a Rua dos Lavradios, casa a casa |
 | `tiago.js` | o prédio do Tiago e o apartamento |
+| `amor.js` | a casa de Amor: o terreno da Rua da Serrada com as três casas |
 | `castelo.js` | o Castelo de Leiria (muralhas, torres, paço e igreja, a partir do OpenStreetMap) |
 | `map-data.js` | o mapa já processado (gerado, não editar à mão) |
 | `build-map.mjs` | gera `map-data.js` a partir dos dados de origem: `node build-map.mjs` |

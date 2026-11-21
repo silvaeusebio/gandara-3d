@@ -107,6 +107,7 @@
 <script src="lavradios.js?v=5"></script>
 <script src="tiago.js?v=5"></script>
 <script src="castelo.js?v=5"></script>
+<script src="amor.js?v=2"></script>
 <script type="module">
 import * as THREE from 'https://unpkg.com/three@0.160.0/build/three.module.js';
 
@@ -773,7 +774,8 @@ const LAV = window.buildLavradios(kit);
 const H = LAV.home;      // { spawn, ax, az (from the road towards the house), cx, cz, garage }
 const TIAGO = window.buildTiago(kit);      // { cx, cz, top, door, bay, obstacles, inZone }
 const obstacles = LAV.obstacles.concat(TIAGO.obstacles);       // parked cars: circles {x, z, r}
-const handMade = (x, z) => LAV.inZone(x, z) || TIAGO.inZone(x, z);
+const AMOR = window.buildAmor(kit);       // the other home, in Amor (amor.js): { x, z, inZone, me, car, bike, heading }
+const handMade = (x, z) => LAV.inZone(x, z) || TIAGO.inZone(x, z) || AMOR.inZone(x, z);
 const CASTLE = window.buildCastle({ ...kit, W, ring, pip, data: MAP.castle });      // Leiria castle (castelo.js): { x, z, inZone }
 
 // ---------- filler houses where OpenStreetMap has no building mapped ----------
@@ -1007,14 +1009,6 @@ function addMarker(text, colour, x, z, y) {
 addMarker('Casa', '#ff8a1f', H.cx, H.cz, 11);
 addMarker('Tiago', '#2f7fe0', TIAGO.cx, TIAGO.cz, TIAGO.top + 5);
 addMarker('Castelo', '#9a6a3a', CASTLE.x, CASTLE.z, 26);
-// the other house: Rua da Serrada 11, Amor. For now only its place is known: you arrive on the street in front of it
-const AMOR = W([-3280.3, 3260.4]);
-{
-  let best = null;
-  for (const s of segs) if (s.road && s.name === 'Rua da Serrada') { const q = segDist(AMOR.x, AMOR.z, s); if (!best || q.d < best.d) best = { ...q, s }; }
-  const l = Math.hypot(best.s.bx - best.s.ax, best.s.bz - best.s.az) || 1;
-  Object.assign(AMOR, { rx: best.px, rz: best.pz, dx: (best.s.bx - best.s.ax) / l, dz: (best.s.bz - best.s.az) / l });       // the point of the street nearest to the house, and the direction of the street
-}
 addMarker('Amor', '#d6457a', AMOR.x, AMOR.z, 13);
 
 // ---------- people: you and Tiago ----------
@@ -1322,11 +1316,10 @@ function goTiago() {                     // TEMP (testes): car in the blue bay a
   Object.assign(car, { x: TIAGO.bay.x, z: TIAGO.bay.z, heading: 0, speed: 0, steer: 0 }); Object.assign(bike, { x: TIAGO.bay.x + 2.6, z: TIAGO.bay.z, heading: 0, speed: 0, steer: 0, lean: 0 });
   st.x = TIAGO.door.x; st.z = TIAGO.door.z - 1.4; st.jump = 0; st.vy = 0; st.heading = st.camHeading = 0; st.orbit = 0;      // you: in front of the ring at the door
 }
-function goAmor() {                      // you on the street in front of the house in Amor, the car and the motorbike parked beside you
+function goAmor() {                      // you at the gate of the house in Amor, the car and the motorbike parked in its yard
   leaveFlat(); driving = false;
-  const heading = Math.atan2(AMOR.dx, AMOR.dz), spot = k => keepOnRoad(AMOR.rx + AMOR.dx * k, AMOR.rz + AMOR.dz * k, 1) || { x: AMOR.rx, z: AMOR.rz }, c = spot(5), b = spot(9);
-  Object.assign(car, { x: c.x, z: c.z, heading, speed: 0, steer: 0 }); Object.assign(bike, { x: b.x, z: b.z, heading, speed: 0, steer: 0, lean: 0 });
-  st.x = AMOR.rx; st.z = AMOR.rz; st.jump = 0; st.vy = 0; st.heading = st.camHeading = Math.atan2(AMOR.x - AMOR.rx, AMOR.z - AMOR.rz); st.orbit = 0;
+  Object.assign(car, { x: AMOR.car.x, z: AMOR.car.z, heading: AMOR.heading, speed: 0, steer: 0 }); Object.assign(bike, { x: AMOR.bike.x, z: AMOR.bike.z, heading: AMOR.heading, speed: 0, steer: 0, lean: 0 });
+  st.x = AMOR.me.x; st.z = AMOR.me.z; st.jump = 0; st.vy = 0; st.heading = st.camHeading = AMOR.me.heading; st.orbit = 0;
 }
 function goHome() {                      // you back in front of the gate, the car and the motorbike back in the garage
   leaveFlat(); driving = false; parkVehicles();
