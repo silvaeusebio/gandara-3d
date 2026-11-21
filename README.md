@@ -13,7 +13,7 @@ Esta é uma versão beta: há coisas por acabar e pode ter erros.
 - A Rua dos Lavradios modelada à mão, casa a casa, a partir de imagens de satélite e de rua.
 - O prédio do Tiago, com o apartamento por dentro feito a partir de um esboço (`esboco/Casa Tiago.png`).
 - Um carro e uma mota, até 150 km/h.
-- Uma missão contra o relógio: ir buscar o Tiago a casa dele e trazê-lo, em três níveis de dificuldade.
+- Uma missão contra o relógio: vais a casa do Tiago, falas com ele, escolhes um de três níveis de dificuldade e leva-lo a tua casa.
 - Passeios, passadeiras, semáforos, paragens de autocarro, candeeiros e placas com o nome das ruas.
 
 ## Teclas
@@ -28,7 +28,7 @@ Esta é uma versão beta: há coisas por acabar e pode ter erros.
 | Roda do rato | aproximar / afastar |
 | Enter | entrar / sair (carro, mota, casa do Tiago) · falar com o Tiago |
 | H | voltar a casa (com o carro e a mota) |
-| 1 · 2 · 3 | começar a missão (fácil, médio, difícil) |
+| 1 · 2 · 3 | escolher o nível (fácil, médio, difícil), quando o Tiago pergunta |
 | 0 | cancelar a missão |
 | T | ir para o prédio do Tiago (atalho de teste, para remover) |
 
@@ -38,13 +38,14 @@ Abre o endereço do jogo no browser do telemóvel e roda-o para ficar deitado.
 
 | No ecrã | O que faz |
 |---|---|
-| Manípulo à esquerda | andar e virar · acelerar, travar e virar; empurrado até ao fim, corre |
+| Manípulo à esquerda | a pé: andar e virar (empurrado até ao fim, corre) · a conduzir: só virar |
 | Arrastar no ecrã | olhar à volta |
 | Afastar ou juntar dois dedos | aproximar / afastar |
 | Botão ● | entrar / sair (carro, mota, casa do Tiago) · falar com o Tiago |
-| Botão ▲ | saltar · travão de mão |
+| Botão ▲ | saltar |
+| Acelerar · Travar · Sair | aparecem quando conduzes: acelerar, travar (e marcha-atrás) e sair do carro ou da mota |
 | Botão ⌂ | voltar a casa |
-| Fácil · Médio · Difícil | começar a missão; Cancelar para a parar |
+| Fácil · Médio · Difícil | aparecem ao falar com o Tiago, para escolher o nível; Cancelar pára a missão |
 | Botão T | ir para o prédio do Tiago (atalho de teste, para remover) |
 
 ## Correr no computador

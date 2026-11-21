@@ -18,7 +18,8 @@
   #mission { left: 12px; top: 54px; max-width: 250px; }
   #mission b { color: #ffd27a; }
   #prompt { left: 50%; bottom: 28px; transform: translateX(-50%); font-size: 17px; font-weight: 600; padding: 8px 18px; background: rgba(216, 57, 43, .85); white-space: nowrap; }
-  #talk { left: 50%; bottom: 90px; transform: translateX(-50%); width: min(560px, 80vw); padding: 14px 20px; font-size: 18px; background: rgba(20, 30, 40, .9); border: 2px solid rgba(255, 255, 255, .7); }
+  #talk { left: 50%; bottom: 90px; transform: translateX(-50%); width: min(560px, 80vw); padding: 14px 20px; font-size: 18px; background: rgba(20, 30, 40, .9); border: 2px solid rgba(255, 255, 255, .7); pointer-events: auto; }
+  #talk button { font: inherit; font-weight: 700; margin: 10px 8px 0 0; padding: 8px 14px; border: 0; border-radius: 8px; background: #ffd27a; color: #2a2000; cursor: pointer; }
   #talk b { display: block; font-size: 14px; margin-bottom: 4px; }
   #talk small { display: block; text-align: right; opacity: .75; margin-top: 6px; }
   #fade { position: fixed; inset: 0; background: #000; opacity: 0; pointer-events: none; transition: opacity .45s; }
@@ -36,6 +37,13 @@
   .tb { width: 60px; height: 60px; border-radius: 50%; border: 2px solid rgba(255, 255, 255, .6); background: rgba(20, 30, 40, .45); color: #fff; font: 700 22px system-ui, sans-serif; padding: 0; }
   .tb.big { width: 80px; height: 80px; font-size: 30px; background: rgba(216, 57, 43, .82); }
   .tb.small { width: 44px; height: 44px; font-size: 17px; }
+  /* drive mode: while you are in the car or on the motorbike the buttons become Travar and Acelerar, with Sair above them */
+  .tb.drive { display: none; font-size: 13px; }
+  .touch.driving .tb.drive { display: block; }
+  .touch.driving #bJump, .touch.driving #bOk { display: none; }
+  #bExit { grid-column: 1 / 3; width: 100%; height: 44px; border-radius: 22px; font-size: 15px; background: rgba(20, 30, 40, .6); }
+  #bBrake { width: 76px; height: 76px; background: rgba(216, 57, 43, .85); }
+  #bGas { width: 92px; height: 92px; background: rgba(46, 160, 80, .88); font-size: 14px; }
   .tb:active { filter: brightness(1.5); }
   .touch .panel { font-size: 11px; line-height: 1.4; padding: 5px 8px; }
   .touch #street { font-size: 13px; top: 6px; padding: 4px 10px; }
@@ -67,7 +75,7 @@
   <div><b>Roda</b> aproximar / afastar</div>
   <div><b>Enter</b> entrar / sair (carro, mota, casa do Tiago)</div>
   <div><b>H</b> voltar a casa (com o carro)</div>
-  <div><b>1 · 2 · 3</b> começar a missão</div>
+  <div><b>1 · 2 · 3</b> escolher o nível (ao falar com o Tiago)</div>
   <div><b>0</b> cancelar a missão</div>
   <div><b>T</b> ir para o prédio do Tiago (teste)</div><!-- TEMP (testes): a remover -->
 </div>
@@ -79,7 +87,10 @@
 <div id="btns">
   <button id="bHome" class="tb small" aria-label="Voltar a casa">⌂</button>
   <button id="bTest" class="tb small" aria-label="Ir para o prédio do Tiago (teste)">T</button><!-- TEMP (testes): a remover -->
-  <button id="bJump" class="tb" aria-label="Saltar ou travão de mão">▲</button>
+  <button id="bExit" class="tb drive">Sair</button>
+  <button id="bBrake" class="tb drive">Travar</button>
+  <button id="bGas" class="tb drive">Acelerar</button>
+  <button id="bJump" class="tb" aria-label="Saltar">▲</button>
   <button id="bOk" class="tb big" aria-label="Entrar, sair ou falar">●</button>
 </div>
 
@@ -771,16 +782,26 @@ const nearTiago = () => !driving && tiago.group.visible && (tiago.home || follow
 const talkEl = document.getElementById('talk');
 let talk = null;
 function say(lines, after) { talk = { lines, i: 0, after }; showTalk(); }
+function ask(who, text, choice, onPick) { talk = { who, text, choice, onPick }; showTalk(); }   // a question with answers to pick from: [[key, label], ...]
 function showTalk() {
   if (!talk) { talkEl.style.display = 'none'; return; }
-  const [who, text] = talk.lines[talk.i];
-  talkEl.innerHTML = '<b style="color:' + (who === 'Tiago' ? '#7be08f' : '#8cc4ff') + '">' + who + '</b>' + text + '<small>' + (TOUCH ? 'toca aqui ▸' : 'Enter ▸') + '</small>'; talkEl.style.display = '';
+  const [who, text] = talk.choice ? [talk.who, talk.text] : talk.lines[talk.i];
+  const tail = talk.choice ? '<div>' + talk.choice.map(([k, label]) => '<button data-pick="' + k + '">' + (TOUCH ? '' : k + ' · ') + label + '</button>').join('') + '</div>' : '<small>' + (TOUCH ? 'toca aqui ▸' : 'Enter ▸') + '</small>';
+  talkEl.innerHTML = '<b style="color:' + (who === 'Tiago' ? '#7be08f' : '#8cc4ff') + '">' + who + '</b>' + text + tail; talkEl.style.display = '';
 }
 function nextTalk() { const done = ++talk.i >= talk.lines.length, after = talk.after; if (done) talk = null; showTalk(); if (done && after) after(); }
-function callTiago() {                   // you tell him you came to fetch him, he says ok, and then he follows you
-  say([['Tu', 'Olá Tiago! Vim buscar-te.'], ['Tiago', 'Ok, vamos!']], () => {
-    mission.called = true; const p = FLAT.spot(5.6, 9.6); tiagoFollows(p.x, p.z); toast('O Tiago vem contigo. Desçam e voltem para o carro!');
-  });
+function pickTalk(k) {                   // an answer was chosen (its key on the keyboard, or its button)
+  if (!talk || !talk.choice || !talk.choice.some(o => o[0] === String(k))) return;
+  const onPick = talk.onPick; talk = null; showTalk(); onPick(String(k));
+}
+talkEl.addEventListener('pointerdown', e => {                  // click or tap: an answer, or on to the next line
+  e.preventDefault();
+  const k = e.target.dataset && e.target.dataset.pick;
+  if (k !== undefined) pickTalk(k); else if (talk && !talk.choice) nextTalk();
+});
+function offerMission() {                // you tell him you came to fetch him; he asks which level; choosing one starts the mission
+  say([['Tu', 'Olá Tiago! Vim buscar-te.'], ['Tiago', 'Ok, vamos!']], () =>
+    ask('Tiago', 'Em que nível queres ir?', [['1', 'Fácil'], ['2', 'Médio'], ['3', 'Difícil'], ['0', 'Agora não']], k => { if (k !== '0') startMission(+k - 1); }));
 }
 // the television: the picture changes and lights the room
 const tv = new THREE.Mesh(new THREE.PlaneGeometry(1.4, 0.78), new THREE.MeshBasicMaterial({ color: '#3a6ea5' })), tvLight = new THREE.PointLight('#9fc4ff', 0, 9, 1.6);
@@ -846,13 +867,12 @@ function leaveFlat() {                   // back down to the door of the buildin
   if (follow.on) tiagoFollows(TIAGO.door.x + 1.1, TIAGO.door.z);            // he comes down with you
 }
 function talkToTiago() {                 // what he says depends on what is going on
-  if (mission.state === 'toTiago' && !mission.called && tiago.home) return callTiago();
   if (follow.on) return say([['Tiago', 'Vou atrás de ti. Vamos!']]);
   if (!tiago.home) { if (mission.state === 'done') say([['Tu', 'Chegámos!'], ['Tiago', 'Obrigado pela boleia!']]); return; }
-  say([['Tu', 'Olá Tiago!'], ['Tiago', 'Olá! Estou a ver televisão. Se quiseres que eu vá contigo, começa a missão ' + (TOUCH ? 'nos botões Fácil, Médio ou Difícil' : 'com as teclas 1, 2 ou 3') + ' e vem buscar-me.']]);
+  offerMission();                                              // he is at home, on the sofa: this is where the mission starts
 }
 function pressEnter() {                  // Enter: the next line of a conversation, the car, or the door you are standing at
-  if (talk) return nextTalk();
+  if (talk) { if (!talk.choice) nextTalk(); return; }          // a question waits for 1, 2, 3 or 0 (or a click on an answer)
   if (driving) return toggleCar();
   if (indoor) { if (FLAT.atDoor(st.x, st.z)) leaveFlat(); else if (nearTiago()) talkToTiago(); return; }   // a door comes first, then Tiago
   if (atBuildingDoor()) return enterFlat();
@@ -950,7 +970,7 @@ function nearVehicle() {                 // the vehicle you can get on from wher
 }
 function toggleCar() {                   // get on / off
   if (!driving) { const v = nearVehicle(); if (v) { ride = v; driving = true; st.jump = 0; st.vy = 0; st.moving = 0; } return; }
-  if (Math.abs(ride.speed) > 2.5) return;                      // stop first
+  if (Math.abs(ride.speed) > 2.5) { toast('Pára primeiro para poderes sair', 2); return; }   // stop first
   driving = false; ride.speed = 0; ride.lean = 0;
   const out = beside(ride); st.x = out.x; st.z = out.z;
 }
@@ -1037,15 +1057,16 @@ try { const saved = JSON.parse(localStorage.getItem('gandara-melhor')); if (Arra
 const mission = { state: 'idle', level: 0, t: 0, called: false, vehicle: null, walk: 0, from: null, field: null, route: null, routeT: 0, last: null };
 const clock = t => t == null ? '—' : String(Math.floor(t / 60)).padStart(2, '0') + ':' + String(Math.floor(t % 60)).padStart(2, '0');
 const active = () => mission.state === 'toTiago' || mission.state === 'boarding' || mission.state === 'toHome';
-const targetOf = () => mission.state === 'toHome' ? H.spawn : TIAGO.bay;
+const targetOf = () => H.spawn;         // where the mission ends: your home
 const toastEl = document.getElementById('toast');
 let toastT = 0;
 function toast(text, secs = 4.5) { toastEl.innerHTML = text; toastEl.style.display = ''; toastT = secs; }
 tiagoOnSofa();
 function startMission(level) {
-  talk = null; showTalk(); goHome(); tiagoOnSofa();
-  Object.assign(mission, { state: 'toTiago', level, t: 0, called: false, field: distanceField(TIAGO.bay), route: null, routeT: 0 });
-  toast('Missão (' + LEVELS[level] + '): vai a casa do Tiago, de carro ou de mota, e traz-o!');
+  const p = FLAT.spot(5.6, 9.6);                               // (called when you pick a level while talking to him) the clock starts and he follows you
+  Object.assign(mission, { state: 'toTiago', level, t: 0, called: true, vehicle: null, field: distanceField(H.spawn), route: null, routeT: 0 });
+  tiagoFollows(p.x, p.z);
+  toast('Missão (' + LEVELS[level] + '): leva o Tiago a tua casa!');
 }
 function cancelMission() { talk = null; showTalk(); if (!active()) return; mission.state = 'idle'; mission.called = false; tiagoOnSofa(); toast('Missão cancelada', 2.5); }
 function missionStep(dt) {
@@ -1080,10 +1101,9 @@ addEventListener('keydown', e => {
   if (e.code === 'KeyH') { cancelMission(); goHome(); }
   if (e.code === 'KeyT') goTiago();                            // TEMP (testes): atalho para o prédio do Tiago, a remover
   if (e.code === 'Enter' || e.code === 'NumpadEnter') pressEnter();     // Enter: get in / out of the car, go up to Tiago's flat and come back down
-  if (e.code === 'Digit1' || e.code === 'Numpad1') startMission(0);
-  if (e.code === 'Digit2' || e.code === 'Numpad2') startMission(1);
-  if (e.code === 'Digit3' || e.code === 'Numpad3') startMission(2);
-  if (e.code === 'Digit0' || e.code === 'Numpad0') cancelMission();
+  const digit = /^(Digit|Numpad)([0-3])$/.exec(e.code);
+  if (digit && talk && talk.choice) pickTalk(digit[2]);        // 1, 2, 3 (or 0): the answer to Tiago's question
+  else if (digit && digit[2] === '0') cancelMission();
 });
 addEventListener('keyup', e => { keys[e.code] = false; });
 addEventListener('blur', () => { for (const k in keys) keys[k] = false; });
@@ -1152,15 +1172,15 @@ function drawHud() {
   const hd = Math.hypot(H.cx - st.x, H.cz - st.z);
   homeEl.textContent = hd < 25 ? 'Casa — estás em casa' : 'Casa: ' + metres(hd);
   homeEl.style.display = mini.style.display = hard ? 'none' : '';
+  if (TOUCH) { document.body.classList.toggle('driving', driving); touchKeys(); }           // drive mode: other buttons
   const nv = nearVehicle(), msg = driving ? Math.round(Math.abs(ride.speed) * 3.6) + ' km/h  ·  Enter para sair' : talk ? '' : indoor ? (FLAT.atDoor(st.x, st.z) ? 'Carrega em Enter para sair de casa do Tiago' : nearTiago() ? 'Carrega em Enter para falar com o Tiago' : '') : atBuildingDoor() ? 'Carrega em Enter para subir a casa do Tiago' : nv ? (nv === bike ? 'Carrega em Enter para andar de mota' : 'Carrega em Enter para conduzir o carro') : nearTiago() ? 'Carrega em Enter para falar com o Tiago' : '';
-  promptEl.textContent = TOUCH ? msg.replace('Carrega em Enter', 'Toca em ●').replace('Enter para sair', '● para sair') : msg; promptEl.style.display = msg ? '' : 'none';
-  const t = targetOf(), atTiago = Math.hypot(st.x - TIAGO.door.x, st.z - TIAGO.door.z) < 45, travel = !indoor && (mission.state === 'toHome' || mission.state === 'toTiago' && !mission.called && !(atTiago && !driving));
+  promptEl.textContent = TOUCH ? msg.replace('Carrega em Enter', 'Toca em ●').replace('  ·  Enter para sair', '') : msg; promptEl.style.display = msg ? '' : 'none';
+  const t = targetOf(), travel = !indoor && mission.state === 'toHome';
   const goal = mission.state === 'toHome' ? (driving && ride !== mission.vehicle ? 'O Tiago ficou ' + (mission.vehicle === bike ? 'na mota' : 'no carro') + ': volta lá' : 'Leva o Tiago a tua casa') : mission.state === 'boarding' ? 'O Tiago está a subir…'
-    : mission.called ? (indoor ? 'Desce com o Tiago (Enter à porta de casa)' : driving ? 'Pára para o Tiago subir' : 'Entra no carro ou sobe para a mota, o Tiago vai contigo')
-    : indoor ? 'Chama o Tiago, que está no sofá' : atTiago && !driving ? 'Sobe a casa do Tiago (Enter à porta do prédio)' : 'Vai a casa do Tiago';
+    : indoor ? 'Desce com o Tiago (Enter à porta de casa)' : driving ? 'Pára para o Tiago subir' : 'Entra no carro ou sobe para a mota, o Tiago vai contigo';
   let mh;
   if (active()) mh = '<b>Missão · ' + LEVELS[mission.level] + ' · ' + clock(mission.t) + '</b><br>' + goal + (help && travel ? ': ' + metres(Math.hypot(t.x - st.x, t.z - st.z)) : '') + (travel && !driving ? '<br>(precisas do carro ou da mota)' : '') + (TOUCH ? '<br><button data-act="cancel">Cancelar</button>' : '');
-  else mh = '<b>Missão: ir buscar o Tiago</b><br>' + (mission.state === 'done' ? 'Último tempo: ' + clock(mission.last) + '<br>' : '') + (TOUCH ? LEVELS.map((l, i) => '<button data-act="' + i + '">' + l + '</button>').join('') + '<br>' : 'Carrega em 1, 2 ou 3 para começar<br>') + 'Carro: ' + LEVELS.map((l, i) => l + ' ' + clock(best.carro[i])).join(' · ') + '<br>Mota: ' + LEVELS.map((l, i) => l + ' ' + clock(best.mota[i])).join(' · ');
+  else mh = '<b>Missão: levar o Tiago a tua casa</b><br>' + (mission.state === 'done' ? 'Último tempo: ' + clock(mission.last) + '<br>' : '') + 'Vai a casa do Tiago e fala com ele para começar<br>Carro: ' + LEVELS.map((l, i) => l + ' ' + clock(best.carro[i])).join(' · ') + '<br>Mota: ' + LEVELS.map((l, i) => l + ' ' + clock(best.mota[i])).join(' · ');
   if (TOUCH) mh = mh.replaceAll('Enter', '●');
   if (mh !== missionEl.shown) { missionEl.innerHTML = mh; missionEl.shown = mh; }      // only when it changes, so that its buttons stay put under the finger
   missionEl.style.top = hard ? (TOUCH ? '6px' : '12px') : (TOUCH ? '34px' : '54px');
@@ -1173,12 +1193,17 @@ function drawHud() {
 }
 
 // ---------- phones and tablets: a stick on the left, buttons on the right; drag the picture to look, pinch to zoom ----------
+let touchKeys = () => {};
 if (TOUCH) {
   const pad = document.getElementById('pad'), knob = document.getElementById('knob');
-  const stick = (x, y) => {                                    // x, y from -1 to 1: it presses the same "keys" as the keyboard
-    knob.style.transform = 'translate(' + x * 40 + 'px,' + y * 40 + 'px)';
-    keys.KeyW = y < -0.3; keys.KeyS = y > 0.5; keys.KeyA = x < -0.35; keys.KeyD = x > 0.35; keys.ShiftLeft = y < -0.3 && Math.hypot(x, y) > 0.92;   // pushed all the way: run
+  let sx = 0, sy = 0;                                          // where the stick is, from -1 to 1
+  const held = { gas: false, brake: false, jump: false };      // buttons that are being held down
+  touchKeys = () => {                                          // the stick and the buttons press the same "keys" as the keyboard
+    keys.KeyA = sx < -0.35; keys.KeyD = sx > 0.35;
+    if (driving) { keys.KeyW = held.gas; keys.KeyS = held.brake; keys.ShiftLeft = false; keys.Space = false; }       // drive mode: the stick only steers
+    else { keys.KeyW = sy < -0.3; keys.KeyS = sy > 0.5; keys.ShiftLeft = sy < -0.3 && Math.hypot(sx, sy) > 0.92; keys.Space = held.jump; }   // on foot: pushed all the way, you run
   };
+  const stick = (x, y) => { sx = x; sy = y; knob.style.transform = 'translate(' + x * 40 + 'px,' + (driving ? 0 : y * 40) + 'px)'; touchKeys(); };
   let padId = null;
   const padMove = e => { const r = pad.getBoundingClientRect(); let x = (e.clientX - r.left - r.width / 2) / 44, y = (e.clientY - r.top - r.height / 2) / 44; const m = Math.hypot(x, y); if (m > 1) { x /= m; y /= m; } stick(x, y); };
   const hold = (el, id) => { try { el.setPointerCapture(id); } catch (err) { /* the finger is already gone */ } };
@@ -1186,12 +1211,13 @@ if (TOUCH) {
   pad.addEventListener('pointermove', e => { if (e.pointerId === padId) padMove(e); });
   for (const ev of ['pointerup', 'pointercancel']) pad.addEventListener(ev, e => { if (e.pointerId === padId) { padId = null; stick(0, 0); } });
   const tap = (id, fn) => document.getElementById(id).addEventListener('pointerdown', e => { e.preventDefault(); fn(); });
-  tap('bOk', pressEnter); tap('bHome', () => { cancelMission(); goHome(); }); tap('bTest', goTiago);
-  const jump = document.getElementById('bJump');               // held down: jump on foot, handbrake when driving
-  jump.addEventListener('pointerdown', e => { e.preventDefault(); keys.Space = true; hold(jump, e.pointerId); });
-  for (const ev of ['pointerup', 'pointercancel']) jump.addEventListener(ev, () => { keys.Space = false; });
-  missionEl.addEventListener('pointerdown', e => { const a = e.target.dataset && e.target.dataset.act; if (a === undefined) return; e.preventDefault(); if (a === 'cancel') cancelMission(); else startMission(+a); });
-  talkEl.addEventListener('pointerdown', e => { e.preventDefault(); pressEnter(); });
+  tap('bOk', pressEnter); tap('bExit', pressEnter); tap('bHome', () => { cancelMission(); goHome(); }); tap('bTest', goTiago);
+  for (const [id, what] of [['bJump', 'jump'], ['bGas', 'gas'], ['bBrake', 'brake']]) {       // buttons that work while they are held down
+    const b = document.getElementById(id);
+    b.addEventListener('pointerdown', e => { e.preventDefault(); held[what] = true; hold(b, e.pointerId); touchKeys(); });
+    for (const ev of ['pointerup', 'pointercancel']) b.addEventListener(ev, () => { held[what] = false; touchKeys(); });
+  }
+  missionEl.addEventListener('pointerdown', e => { const a = e.target.dataset && e.target.dataset.act; if (a === undefined) return; e.preventDefault(); if (a === 'cancel') cancelMission(); });
   addEventListener('contextmenu', e => e.preventDefault());    // no menu on a long press
   if (innerHeight > innerWidth) toast('Roda o telemóvel para jogar deitado', 6);
 }
