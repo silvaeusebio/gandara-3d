@@ -32,6 +32,21 @@ Esta é uma versão beta: há coisas por acabar e pode ter erros.
 | 0 | cancelar a missão |
 | T | ir para o prédio do Tiago (atalho de teste, para remover) |
 
+## No telemóvel ou tablet
+
+Abre o endereço do jogo no browser do telemóvel e roda-o para ficar deitado.
+
+| No ecrã | O que faz |
+|---|---|
+| Manípulo à esquerda | andar e virar · acelerar, travar e virar; empurrado até ao fim, corre |
+| Arrastar no ecrã | olhar à volta |
+| Afastar ou juntar dois dedos | aproximar / afastar |
+| Botão ● | entrar / sair (carro, mota, casa do Tiago) · falar com o Tiago |
+| Botão ▲ | saltar · travão de mão |
+| Botão ⌂ | voltar a casa |
+| Fácil · Médio · Difícil | começar a missão; Cancelar para a parar |
+| Botão T | ir para o prédio do Tiago (atalho de teste, para remover) |
+
 ## Correr no computador
 
 O jogo é só HTML e JavaScript, sem instalação. Precisa de internet para ir buscar a biblioteca three.js.

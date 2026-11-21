@@ -2,10 +2,10 @@
 <html lang="pt">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
 <title>Gândara 3D</title>
 <style>
-  html, body { margin: 0; height: 100%; overflow: hidden; background: #bfe3f5; font-family: system-ui, "Segoe UI", sans-serif; }
+  html, body { margin: 0; height: 100%; overflow: hidden; overscroll-behavior: none; background: #bfe3f5; font-family: system-ui, "Segoe UI", sans-serif; }
   canvas#c { display: block; width: 100%; height: 100%; cursor: grab; }
   canvas#c.drag { cursor: grabbing; }
   .panel { position: fixed; background: rgba(20, 30, 40, .62); color: #fff; border-radius: 10px; padding: 8px 12px; font-size: 13px; line-height: 1.5; user-select: none; pointer-events: none; }
@@ -24,6 +24,29 @@
   #fade { position: fixed; inset: 0; background: #000; opacity: 0; pointer-events: none; transition: opacity .45s; }
   #toast { left: 50%; top: 110px; transform: translateX(-50%); font-size: 20px; font-weight: 700; padding: 12px 24px; text-align: center; background: rgba(20, 30, 40, .82); }
   #mini { position: fixed; right: 12px; top: 12px; width: 180px; height: 180px; border-radius: 50%; border: 3px solid rgba(255, 255, 255, .85); box-shadow: 0 2px 10px rgba(0, 0, 0, .35); }
+  #mission button { font: inherit; font-weight: 700; margin: 4px 5px 2px 0; padding: 6px 10px; border: 0; border-radius: 8px; background: #ffd27a; color: #2a2000; }
+  /* phones and tablets: a stick on the left, buttons on the right, smaller panels */
+  #pad, #btns { display: none; }
+  body.touch, body.touch * { -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; -webkit-tap-highlight-color: transparent; }
+  .touch canvas#c, .touch #pad, .touch .tb { touch-action: none; }
+  .touch #help { display: none; }
+  .touch #pad { display: block; position: fixed; left: max(18px, env(safe-area-inset-left)); bottom: max(18px, env(safe-area-inset-bottom)); width: 132px; height: 132px; border-radius: 50%; background: rgba(20, 30, 40, .32); border: 2px solid rgba(255, 255, 255, .55); }
+  #knob { position: absolute; left: 50%; top: 50%; width: 56px; height: 56px; margin: -28px 0 0 -28px; border-radius: 50%; background: rgba(255, 255, 255, .78); pointer-events: none; }
+  .touch #btns { display: grid; position: fixed; right: max(16px, env(safe-area-inset-right)); bottom: max(16px, env(safe-area-inset-bottom)); grid-template-columns: auto auto; gap: 10px; align-items: end; justify-items: end; }
+  .tb { width: 60px; height: 60px; border-radius: 50%; border: 2px solid rgba(255, 255, 255, .6); background: rgba(20, 30, 40, .45); color: #fff; font: 700 22px system-ui, sans-serif; padding: 0; }
+  .tb.big { width: 80px; height: 80px; font-size: 30px; background: rgba(216, 57, 43, .82); }
+  .tb.small { width: 44px; height: 44px; font-size: 17px; }
+  .tb:active { filter: brightness(1.5); }
+  .touch .panel { font-size: 11px; line-height: 1.4; padding: 5px 8px; }
+  .touch #street { font-size: 13px; top: 6px; padding: 4px 10px; }
+  .touch #arrow { top: 36px; font-size: 13px; padding: 4px 10px; }
+  .touch #arrowIcon { font-size: 17px; }
+  .touch #home { left: max(6px, env(safe-area-inset-left)); top: 6px; }
+  .touch #mission { left: max(6px, env(safe-area-inset-left)); top: 34px; max-width: 44vw; pointer-events: auto; }
+  .touch #mini { width: 104px; height: 104px; right: max(6px, env(safe-area-inset-right)); top: 6px; border-width: 2px; }
+  .touch #prompt { bottom: 14px; font-size: 13px; padding: 6px 12px; white-space: normal; text-align: center; max-width: 42vw; }
+  .touch #talk { bottom: 64px; width: min(460px, 56vw); font-size: 15px; padding: 10px 14px; pointer-events: auto; }
+  .touch #toast { top: 66px; font-size: 14px; padding: 8px 14px; max-width: 70vw; }
   #loading { position: fixed; inset: 0; display: flex; align-items: center; justify-content: center; color: #234; font-size: 18px; text-align: center; padding: 20px; }
 </style>
 </head>
@@ -52,6 +75,13 @@
 <div id="fade"></div>
 <div id="toast" class="panel" style="display:none"></div>
 <div id="talk" class="panel" style="display:none"></div>
+<div id="pad"><div id="knob"></div></div>
+<div id="btns">
+  <button id="bHome" class="tb small" aria-label="Voltar a casa">⌂</button>
+  <button id="bTest" class="tb small" aria-label="Ir para o prédio do Tiago (teste)">T</button><!-- TEMP (testes): a remover -->
+  <button id="bJump" class="tb" aria-label="Saltar ou travão de mão">▲</button>
+  <button id="bOk" class="tb big" aria-label="Entrar, sair ou falar">●</button>
+</div>
 
 <script src="map-data.js"></script>
 <script src="lavradios.js"></script>
@@ -60,6 +90,10 @@
 import * as THREE from 'https://unpkg.com/three@0.160.0/build/three.module.js';
 
 const MAP = window.MAP, T_START = performance.now();
+// a phone or a tablet gets buttons on the screen instead of keys (add ?touch to the address to try it on a computer)
+const TOUCH = new URLSearchParams(location.search).has('touch') || matchMedia('(pointer: coarse)').matches, KEY = TOUCH ? '●' : 'Enter';
+if (TOUCH) document.body.classList.add('touch');
+if (!CanvasRenderingContext2D.prototype.roundRect) CanvasRenderingContext2D.prototype.roundRect = function (x, y, w, h) { this.rect(x, y, w, h); };   // older phones
 const GROUND_Y = 0.2;     // how far above the terrain you walk (top of the road surface)
 // the playable world: the downloaded rectangle (map coordinates are metres east / north of the home; world z = -north)
 const BOUNDS = { x0: MAP.bounds[0] + 20, x1: MAP.bounds[2] - 20, z0: -MAP.bounds[3] + 20, z1: -MAP.bounds[1] - 20 };
@@ -200,7 +234,7 @@ function strip(B, pts, w, y, col) {                // a road surface: one contin
 // ---------- scene ----------
 const canvas = document.getElementById('c');
 const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
-renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+renderer.setPixelRatio(Math.min(devicePixelRatio, TOUCH ? 1.5 : 2));        // phones have dense screens and weaker graphics
 renderer.shadowMap.enabled = true;
 renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 const scene = new THREE.Scene();
@@ -212,7 +246,7 @@ const camera = new THREE.PerspectiveCamera(60, 1, 0.5, 950);
 scene.add(new THREE.HemisphereLight(0xeef7ff, 0xb9b7a4, 1.9));
 const sun = new THREE.DirectionalLight(0xfff1d6, 2.4);
 sun.castShadow = true;
-sun.shadow.mapSize.set(2048, 2048);
+sun.shadow.mapSize.set(TOUCH ? 1024 : 2048, TOUCH ? 1024 : 2048);
 Object.assign(sun.shadow.camera, { left: -80, right: 80, top: 80, bottom: -80, near: 1, far: 500 });
 sun.shadow.bias = -0.0005;
 scene.add(sun, sun.target);
@@ -740,7 +774,7 @@ function say(lines, after) { talk = { lines, i: 0, after }; showTalk(); }
 function showTalk() {
   if (!talk) { talkEl.style.display = 'none'; return; }
   const [who, text] = talk.lines[talk.i];
-  talkEl.innerHTML = '<b style="color:' + (who === 'Tiago' ? '#7be08f' : '#8cc4ff') + '">' + who + '</b>' + text + '<small>Enter ▸</small>'; talkEl.style.display = '';
+  talkEl.innerHTML = '<b style="color:' + (who === 'Tiago' ? '#7be08f' : '#8cc4ff') + '">' + who + '</b>' + text + '<small>' + (TOUCH ? 'toca aqui ▸' : 'Enter ▸') + '</small>'; talkEl.style.display = '';
 }
 function nextTalk() { const done = ++talk.i >= talk.lines.length, after = talk.after; if (done) talk = null; showTalk(); if (done && after) after(); }
 function callTiago() {                   // you tell him you came to fetch him, he says ok, and then he follows you
@@ -769,8 +803,8 @@ function doorMark(x, y, z, text, low) {   // low: inside the flat, where everyth
   g.add(ring, disc, arrow, label); g.position.set(x, y + 0.05, z); scene.add(g);
   return { g, ring, arrow, top, bob: low ? 0.06 : 0.2 };
 }
-const markOut = doorMark(TIAGO.door.x, height(TIAGO.door.x, TIAGO.door.z) + GROUND_Y, TIAGO.door.z, 'Entrar · Enter');
-const markIn = doorMark(FLAT.entry.x, FLAT.y, FLAT.entry.z, 'Sair · Enter', true);
+const markOut = doorMark(TIAGO.door.x, height(TIAGO.door.x, TIAGO.door.z) + GROUND_Y, TIAGO.door.z, 'Entrar · ' + KEY);
+const markIn = doorMark(FLAT.entry.x, FLAT.y, FLAT.entry.z, 'Sair · ' + KEY, true);
 function doorMarksStep(t) {              // they pulse and bob, so that you see them from the car park
   markOut.g.visible = !indoor; markIn.g.visible = indoor;
   for (const m of [markOut, markIn]) { const k = 1 + Math.sin(t * 4) * 0.08; m.ring.scale.set(k, 1, k); m.arrow.position.y = m.top + Math.sin(t * 3) * m.bob; m.arrow.rotation.y = t * 2; }
@@ -815,7 +849,7 @@ function talkToTiago() {                 // what he says depends on what is goin
   if (mission.state === 'toTiago' && !mission.called && tiago.home) return callTiago();
   if (follow.on) return say([['Tiago', 'Vou atrás de ti. Vamos!']]);
   if (!tiago.home) { if (mission.state === 'done') say([['Tu', 'Chegámos!'], ['Tiago', 'Obrigado pela boleia!']]); return; }
-  say([['Tu', 'Olá Tiago!'], ['Tiago', 'Olá! Estou a ver televisão. Se quiseres que eu vá contigo, começa a missão com as teclas 1, 2 ou 3 e vem buscar-me.']]);
+  say([['Tu', 'Olá Tiago!'], ['Tiago', 'Olá! Estou a ver televisão. Se quiseres que eu vá contigo, começa a missão ' + (TOUCH ? 'nos botões Fácil, Médio ou Difícil' : 'com as teclas 1, 2 ou 3') + ' e vem buscar-me.']]);
 }
 function pressEnter() {                  // Enter: the next line of a conversation, the car, or the door you are standing at
   if (talk) return nextTalk();
@@ -1053,16 +1087,20 @@ addEventListener('keydown', e => {
 });
 addEventListener('keyup', e => { keys[e.code] = false; });
 addEventListener('blur', () => { for (const k in keys) keys[k] = false; });
-let dragging = false, lastX = 0, lastY = 0;
-canvas.addEventListener('pointerdown', e => { dragging = true; lastX = e.clientX; lastY = e.clientY; canvas.setPointerCapture(e.pointerId); canvas.classList.add('drag'); });
+const pointers = new Map();              // the mouse button, or the fingers, on the picture itself: one turns the camera, two zoom
+let dragging = false, pinch = 0;
+const zoom = k => { st.dist = Math.max(indoor ? 1.2 : 3, Math.min(indoor ? 3.6 : 70, st.dist * k)); };
+canvas.addEventListener('pointerdown', e => { pointers.set(e.pointerId, { x: e.clientX, y: e.clientY }); dragging = true; pinch = 0; try { canvas.setPointerCapture(e.pointerId); } catch (err) { /* already released */ } canvas.classList.add('drag'); });
 canvas.addEventListener('pointermove', e => {
-  if (!dragging) return;
-  st.orbit -= (e.clientX - lastX) * 0.006; st.pitch = Math.max(indoor ? -0.25 : 0.05, Math.min(indoor ? 0.55 : 1.35, st.pitch + (e.clientY - lastY) * 0.005));
-  lastX = e.clientX; lastY = e.clientY;
+  const p = pointers.get(e.pointerId);
+  if (!p) return;
+  if (pointers.size === 1) { st.orbit -= (e.clientX - p.x) * 0.006; st.pitch = Math.max(indoor ? -0.25 : 0.05, Math.min(indoor ? 0.55 : 1.35, st.pitch + (e.clientY - p.y) * 0.005)); }
+  p.x = e.clientX; p.y = e.clientY;
+  if (pointers.size === 2) { const [a, b] = [...pointers.values()], d = Math.hypot(a.x - b.x, a.y - b.y); if (pinch && d > 1) zoom(pinch / d); pinch = d; }
 });
-const endDrag = () => { dragging = false; canvas.classList.remove('drag'); };
+const endDrag = e => { pointers.delete(e.pointerId); pinch = 0; dragging = pointers.size > 0; if (!dragging) canvas.classList.remove('drag'); };
 canvas.addEventListener('pointerup', endDrag); canvas.addEventListener('pointercancel', endDrag);
-canvas.addEventListener('wheel', e => { e.preventDefault(); st.dist = Math.max(indoor ? 1.2 : 3, Math.min(indoor ? 3.6 : 70, st.dist * (e.deltaY > 0 ? 1.12 : 0.89))); }, { passive: false });
+canvas.addEventListener('wheel', e => { e.preventDefault(); zoom(e.deltaY > 0 ? 1.12 : 0.89); }, { passive: false });
 
 // ---------- minimap (drawn from the road grid, around the player) ----------
 const mini = document.getElementById('mini'), mc = mini.getContext('2d');
@@ -1115,20 +1153,47 @@ function drawHud() {
   homeEl.textContent = hd < 25 ? 'Casa — estás em casa' : 'Casa: ' + metres(hd);
   homeEl.style.display = mini.style.display = hard ? 'none' : '';
   const nv = nearVehicle(), msg = driving ? Math.round(Math.abs(ride.speed) * 3.6) + ' km/h  ·  Enter para sair' : talk ? '' : indoor ? (FLAT.atDoor(st.x, st.z) ? 'Carrega em Enter para sair de casa do Tiago' : nearTiago() ? 'Carrega em Enter para falar com o Tiago' : '') : atBuildingDoor() ? 'Carrega em Enter para subir a casa do Tiago' : nv ? (nv === bike ? 'Carrega em Enter para andar de mota' : 'Carrega em Enter para conduzir o carro') : nearTiago() ? 'Carrega em Enter para falar com o Tiago' : '';
-  promptEl.textContent = msg; promptEl.style.display = msg ? '' : 'none';
+  promptEl.textContent = TOUCH ? msg.replace('Carrega em Enter', 'Toca em ●').replace('Enter para sair', '● para sair') : msg; promptEl.style.display = msg ? '' : 'none';
   const t = targetOf(), atTiago = Math.hypot(st.x - TIAGO.door.x, st.z - TIAGO.door.z) < 45, travel = !indoor && (mission.state === 'toHome' || mission.state === 'toTiago' && !mission.called && !(atTiago && !driving));
   const goal = mission.state === 'toHome' ? (driving && ride !== mission.vehicle ? 'O Tiago ficou ' + (mission.vehicle === bike ? 'na mota' : 'no carro') + ': volta lá' : 'Leva o Tiago a tua casa') : mission.state === 'boarding' ? 'O Tiago está a subir…'
     : mission.called ? (indoor ? 'Desce com o Tiago (Enter à porta de casa)' : driving ? 'Pára para o Tiago subir' : 'Entra no carro ou sobe para a mota, o Tiago vai contigo')
     : indoor ? 'Chama o Tiago, que está no sofá' : atTiago && !driving ? 'Sobe a casa do Tiago (Enter à porta do prédio)' : 'Vai a casa do Tiago';
-  if (active()) missionEl.innerHTML = '<b>Missão · ' + LEVELS[mission.level] + ' · ' + clock(mission.t) + '</b><br>' + goal + (help && travel ? ': ' + metres(Math.hypot(t.x - st.x, t.z - st.z)) : '') + (travel && !driving ? '<br>(precisas do carro ou da mota)' : '');
-  else missionEl.innerHTML = '<b>Missão: ir buscar o Tiago</b><br>' + (mission.state === 'done' ? 'Último tempo: ' + clock(mission.last) + '<br>' : '') + 'Carrega em 1, 2 ou 3 para começar<br>Carro: ' + LEVELS.map((l, i) => l + ' ' + clock(best.carro[i])).join(' · ') + '<br>Mota: ' + LEVELS.map((l, i) => l + ' ' + clock(best.mota[i])).join(' · ');
-  missionEl.style.top = hard ? '12px' : '54px';
+  let mh;
+  if (active()) mh = '<b>Missão · ' + LEVELS[mission.level] + ' · ' + clock(mission.t) + '</b><br>' + goal + (help && travel ? ': ' + metres(Math.hypot(t.x - st.x, t.z - st.z)) : '') + (travel && !driving ? '<br>(precisas do carro ou da mota)' : '') + (TOUCH ? '<br><button data-act="cancel">Cancelar</button>' : '');
+  else mh = '<b>Missão: ir buscar o Tiago</b><br>' + (mission.state === 'done' ? 'Último tempo: ' + clock(mission.last) + '<br>' : '') + (TOUCH ? LEVELS.map((l, i) => '<button data-act="' + i + '">' + l + '</button>').join('') + '<br>' : 'Carrega em 1, 2 ou 3 para começar<br>') + 'Carro: ' + LEVELS.map((l, i) => l + ' ' + clock(best.carro[i])).join(' · ') + '<br>Mota: ' + LEVELS.map((l, i) => l + ' ' + clock(best.mota[i])).join(' · ');
+  if (TOUCH) mh = mh.replaceAll('Enter', '●');
+  if (mh !== missionEl.shown) { missionEl.innerHTML = mh; missionEl.shown = mh; }      // only when it changes, so that its buttons stay put under the finger
+  missionEl.style.top = hard ? (TOUCH ? '6px' : '12px') : (TOUCH ? '34px' : '54px');
   arrowEl.style.display = help && travel ? 'flex' : 'none';
   if (help) {                                                  // the arrow turns towards the target, as seen from the camera
     const yaw = st.camHeading + st.orbit, dx = t.x - st.x, dz = t.z - st.z, a = Math.atan2(dx * -Math.cos(yaw) + dz * Math.sin(yaw), dx * Math.sin(yaw) + dz * Math.cos(yaw));
     arrowIcon.style.transform = 'rotate(' + a + 'rad)'; arrowText.textContent = (mission.state === 'toHome' ? 'Casa' : 'Tiago') + ' · ' + metres(Math.hypot(dx, dz));
   }
   if (!hard) drawMini();
+}
+
+// ---------- phones and tablets: a stick on the left, buttons on the right; drag the picture to look, pinch to zoom ----------
+if (TOUCH) {
+  const pad = document.getElementById('pad'), knob = document.getElementById('knob');
+  const stick = (x, y) => {                                    // x, y from -1 to 1: it presses the same "keys" as the keyboard
+    knob.style.transform = 'translate(' + x * 40 + 'px,' + y * 40 + 'px)';
+    keys.KeyW = y < -0.3; keys.KeyS = y > 0.5; keys.KeyA = x < -0.35; keys.KeyD = x > 0.35; keys.ShiftLeft = y < -0.3 && Math.hypot(x, y) > 0.92;   // pushed all the way: run
+  };
+  let padId = null;
+  const padMove = e => { const r = pad.getBoundingClientRect(); let x = (e.clientX - r.left - r.width / 2) / 44, y = (e.clientY - r.top - r.height / 2) / 44; const m = Math.hypot(x, y); if (m > 1) { x /= m; y /= m; } stick(x, y); };
+  const hold = (el, id) => { try { el.setPointerCapture(id); } catch (err) { /* the finger is already gone */ } };
+  pad.addEventListener('pointerdown', e => { e.preventDefault(); padId = e.pointerId; padMove(e); hold(pad, padId); });
+  pad.addEventListener('pointermove', e => { if (e.pointerId === padId) padMove(e); });
+  for (const ev of ['pointerup', 'pointercancel']) pad.addEventListener(ev, e => { if (e.pointerId === padId) { padId = null; stick(0, 0); } });
+  const tap = (id, fn) => document.getElementById(id).addEventListener('pointerdown', e => { e.preventDefault(); fn(); });
+  tap('bOk', pressEnter); tap('bHome', () => { cancelMission(); goHome(); }); tap('bTest', goTiago);
+  const jump = document.getElementById('bJump');               // held down: jump on foot, handbrake when driving
+  jump.addEventListener('pointerdown', e => { e.preventDefault(); keys.Space = true; hold(jump, e.pointerId); });
+  for (const ev of ['pointerup', 'pointercancel']) jump.addEventListener(ev, () => { keys.Space = false; });
+  missionEl.addEventListener('pointerdown', e => { const a = e.target.dataset && e.target.dataset.act; if (a === undefined) return; e.preventDefault(); if (a === 'cancel') cancelMission(); else startMission(+a); });
+  talkEl.addEventListener('pointerdown', e => { e.preventDefault(); pressEnter(); });
+  addEventListener('contextmenu', e => e.preventDefault());    // no menu on a long press
+  if (innerHeight > innerWidth) toast('Roda o telemóvel para jogar deitado', 6);
 }
 
 // ---------- loop ----------
