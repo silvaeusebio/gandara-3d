@@ -101,6 +101,7 @@
 <script src="map-data.js"></script>
 <script src="lavradios.js"></script>
 <script src="tiago.js"></script>
+<script src="castelo.js"></script>
 <script type="module">
 import * as THREE from 'https://unpkg.com/three@0.160.0/build/three.module.js';
 
@@ -112,12 +113,19 @@ if (!CanvasRenderingContext2D.prototype.roundRect) CanvasRenderingContext2D.prot
 const GROUND_Y = 0.2;     // how far above the terrain you walk (top of the road surface)
 // the playable world: the downloaded rectangle (map coordinates are metres east / north of the home; world z = -north)
 const BOUNDS = { x0: MAP.bounds[0] + 20, x1: MAP.bounds[2] - 20, z0: -MAP.bounds[3] + 20, z1: -MAP.bounds[1] - 20 };
-const inWorld = (x, z, m = 0) => x > BOUNDS.x0 + m && x < BOUNDS.x1 - m && z > BOUNDS.z0 + m && z < BOUNDS.z1 - m;
+// The map grew to the south after the first version (to take in the castle). The random details (invented houses, lamps, trees) are still laid
+// out exactly as before for the part that was already there: for that part the tests below look only at the old map (oldOnly), and what
+// came later (marked "fresh") draws its numbers from a second generator.
+const OLD = MAP.old, OB = { x0: OLD.bounds[0] + 20, x1: OLD.bounds[2] - 20, z0: -OLD.bounds[3] + 20, z1: -OLD.bounds[1] - 20 };
+let oldOnly = false;
+const inWorld = (x, z, m = 0) => { const b = oldOnly ? OB : BOUNDS; return x > b.x0 + m && x < b.x1 - m && z > b.z0 + m && z < b.z1 - m; };
 
 // ---------- helpers ----------
 function mulberry32(a) { return () => { a |= 0; a = a + 0x6D2B79F5 | 0; let t = Math.imul(a ^ a >>> 15, 1 | a); t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t; return ((t ^ t >>> 14) >>> 0) / 4294967296; }; }
-const rnd = mulberry32(20261121);
-const pick = a => a[Math.floor(rnd() * a.length)];
+const rnd = mulberry32(20261121), rnd2 = mulberry32(20261122);
+let rand = rnd;
+const pick = a => a[Math.floor(rand() * a.length)];
+function era(fresh) { rand = fresh ? rnd2 : rnd; oldOnly = fresh === false; }   // era(false): laying out the old part · era(true): the newer part · era(): neither
 const C = hex => new THREE.Color(hex);
 const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
 const W = p => ({ x: p[0], z: -p[1] });            // map (east, north) -> world (x, z)
@@ -278,6 +286,7 @@ const G = new Builder(true);    // flat ground layers (roads, water...), laid on
 // ---------- land use: woods, parks and industrial ground colour the terrain; water and pitches are laid on top ----------
 const waters = MAP.water.map(ring), forests = MAP.forest.map(ring), industrial = MAP.industrial.map(ring), pools = MAP.pools.map(ring);
 const greens = MAP.green.map(ring), pitches = MAP.pitch.map(ring);
+waters.old = OLD.water; forests.old = OLD.forest; industrial.old = OLD.industrial; pools.old = OLD.pools; greens.old = OLD.green; pitches.old = OLD.pitch;
 {
   const { x0, z0, cols, rows, STEP, data } = TERR, kind = new Uint8Array(cols * rows);
   [[greens, 2], [forests, 1], [industrial, 3]].forEach(([list, id]) => list.forEach(p => {
@@ -285,12 +294,12 @@ const greens = MAP.green.map(ring), pitches = MAP.pitch.map(ring);
       for (let c = Math.max(0, Math.ceil((p.x0 - x0) / STEP)); c <= Math.min(cols - 1, Math.floor((p.x1 - x0) / STEP)); c++)
         if (pip(p, x0 + c * STEP, z0 + r * STEP)) kind[r * cols + c] = id;
   }));
-  const tint = [C('#8cc468'), C('#6fa653'), C('#7fc063'), C('#c2bcae')], mat = new THREE.MeshLambertMaterial({ vertexColors: true }), N = CHUNK / STEP;
+  const tint = [C('#8cc468'), C('#6fa653'), C('#7fc063'), C('#c2bcae')], mat = new THREE.MeshLambertMaterial({ vertexColors: true }), N = CHUNK / STEP, shadeRnd = mulberry32(20261121);
   const hAt = (c, r) => data[clamp(r, 0, rows - 1) * cols + clamp(c, 0, cols - 1)];
   for (let R0 = 0; R0 < rows - 1; R0 += N) for (let C0 = 0; C0 < cols - 1; C0 += N) {
     const nc = Math.min(N, cols - 1 - C0), nr = Math.min(N, rows - 1 - R0), pos = [], col = [], nor = [], idx = [];
     for (let r = 0; r <= nr; r++) for (let c = 0; c <= nc; c++) {
-      const gc = C0 + c, gr = R0 + r, t = tint[kind[gr * cols + gc]], shade = 0.95 + rnd() * 0.1;
+      const gc = C0 + c, gr = R0 + r, t = tint[kind[gr * cols + gc]], shade = 0.95 + shadeRnd() * 0.1;
       pos.push(x0 + gc * STEP, hAt(gc, gr), z0 + gr * STEP); col.push(t.r * shade, t.g * shade, t.b * shade);
       const nx = hAt(gc - 1, gr) - hAt(gc + 1, gr), nz = hAt(gc, gr - 1) - hAt(gc, gr + 1), l = Math.hypot(nx, 2 * STEP, nz);
       nor.push(nx / l, 2 * STEP / l, nz / l);
@@ -301,6 +310,9 @@ const greens = MAP.green.map(ring), pitches = MAP.pitch.map(ring);
     g.setIndex(idx); g.computeBoundingSphere();
     const m = new THREE.Mesh(g, mat); m.receiveShadow = true; scene.add(m);
   }
+  // the ground used to take its shades from the main generator: move that one on by as many numbers as the old map took
+  const count = n => { let s = 0; for (let k = 0; k < n - 1; k += N) s += Math.min(N, n - 1 - k) + 1; return s; };
+  for (let i = count(Math.ceil((OB.x1 + 800 - x0) / STEP) + 1) * count(Math.ceil((OB.z1 + 800 - z0) / STEP) + 1); i > 0; i--) rnd();
 }
 pitches.forEach(p => flatPoly(G, p, 0.03, C('#57a855')));
 waters.forEach(p => flatPoly(G, p, 0.05, C('#58a6d8')));
@@ -314,7 +326,7 @@ const ROAD = {
   primary: { w: 9, y: .16, c: '#50545a', dash: true, v: 25, side: 2 }, secondary: { w: 8, y: .15, c: '#565a60', dash: true, v: 25, side: 2 },
   tertiary: { w: 7, y: .14, c: '#5c6066', dash: true, v: 20, side: 1.8 }, unclassified: { w: 6, y: .13, c: '#63676c', v: 17, side: 1.5 },
   residential: { w: 5.5, y: .12, c: '#6a6e73', v: 15, side: 1.5 }, living_street: { w: 5, y: .12, c: '#74777b', v: 12, side: 1.2 },
-  pedestrian: { w: 5, y: .115, c: '#b9b2a4', v: 8 }, service: { w: 3.5, y: .11, c: '#7b7e82', v: 12 }, track: { w: 3, y: .10, c: '#b79f78', v: 10 },
+  pedestrian: { w: 5, y: .115, c: '#b9b2a4', v: 8 }, footway: { w: 3, y: .115, c: '#cdbf9c', v: 6 }, service: { w: 3.5, y: .11, c: '#7b7e82', v: 12 }, track: { w: 3, y: .10, c: '#b79f78', v: 10 },
 };
 for (const k of ['motorway', 'trunk', 'primary', 'secondary', 'tertiary']) ROAD[k + '_link'] = { ...ROAD[k], w: Math.max(5.5, ROAD[k].w - 3), dash: false, side: 0 };
 const BIG = new Set(['motorway', 'trunk', 'primary', 'motorway_link', 'trunk_link']);
@@ -329,7 +341,7 @@ const NET = [], bridges = [];
   const dist = (a, b) => Math.hypot(a.x - b.x, a.z - b.z), asSeg = (a, b) => ({ ax: a.x, az: a.z, bx: b.x, bz: b.z });
   for (const m of MAP.roads) {
     const pts = m.p.map(W).filter((p, i, a) => !i || Math.hypot(p.x - a[i - 1].x, p.z - a[i - 1].z) > 0.05);
-    if (pts.length > 1) NET.push({ n: m.n, t: m.t, b: !!m.b, u: !!m.u, pts, raw: pts, st: ROAD[m.t] || ROAD.residential, cuts: [] });
+    if (pts.length > 1) NET.push({ n: m.n, t: m.t, b: !!m.b, u: !!m.u, f: !!m.f, pts, raw: pts, st: ROAD[m.t] || ROAD.residential, cuts: [] });
   }
   // 1. where a bridge or an underpass crosses another road without meeting it
   const CG = 80, cg = new Map(), cross = [];
@@ -471,10 +483,11 @@ function addSeg(s) {
 const near = (x, z) => segGrid.get(Math.floor(x / GRID) * 8192 + Math.floor(z / GRID)) || NONE;   // all segments within SEG_REACH of the point (and more)
 function addRoad(name, type, pts, st, net) {                   // net: what was worked out above for a road of the map
   const r = { name, type, st: st || ROAD[type] || ROAD.residential, pts, segs: [] };
-  if (net) { r.raw = net.raw; if (net.high) { r.lift = net.lift; r.deck = net.deck; r.Y = net.Y; r.ends = net.ends; } }
+  if (net) { r.raw = net.raw; r.fresh = net.f; if (net.high) { r.lift = net.lift; r.deck = net.deck; r.Y = net.Y; r.ends = net.ends; } }
   roads.push(r);
   for (let i = 0; i < pts.length - 1; i++) {
     const s = { ax: pts[i].x, az: pts[i].z, bx: pts[i + 1].x, bz: pts[i + 1].z, w: r.st.w, side: r.st.side || 0, name, type, road: r };
+    if (r.fresh) s.fresh = true;
     if (r.lift) { s.la = r.lift[i]; s.lb = r.lift[i + 1]; s.deck = r.deck[i]; s.ya = r.Y[i]; s.yb = r.Y[i + 1]; s.high = s.deck || s.la > 0.02 || s.lb > 0.02; }
     r.segs.push(addSeg(s));
   }
@@ -482,6 +495,7 @@ function addRoad(name, type, pts, st, net) {                   // net: what was 
 }
 for (const net of NET) {
   const pts = net.pts, r = addRoad(net.n, net.t, pts, null, net);
+  if (net.t === 'footway') { r.noWall = true; for (const s of r.segs) s.noWall = true; }      // the paths of the castle: no walls beside them
   strip(G, pts, r.st.w, r.st.y, C(r.st.c), r);
   if (r.st.dash) {                                             // centre line
     const white = C('#e9e9e2');
@@ -671,7 +685,7 @@ function buildBridges() {                 // under the decks: the slab, piers un
   }
 }
 function roadClear(x, z, r) {          // true when a circle of radius r does not touch any road or pavement (big roads keep things further away)
-  for (const s of near(x, z)) if (segDist(x, z, s).d < s.w / 2 + s.side + r + (BIG.has(s.type) ? 5 : 0)) return false;
+  for (const s of near(x, z)) if (!(oldOnly && s.fresh) && segDist(x, z, s).d < s.w / 2 + s.side + r + (BIG.has(s.type) ? 5 : 0)) return false;
   return true;
 }
 
@@ -683,7 +697,7 @@ function blobFree(x, z, r, gap) {
   const R = r + gap;
   for (let ix = Math.floor((x - R) / BG); ix <= Math.floor((x + R) / BG); ix++) for (let iz = Math.floor((z - R) / BG); iz <= Math.floor((z + R) / BG); iz++) {
     const c = blobGrid.get(ix * 8192 + iz);
-    if (c) for (const b of c) if (Math.hypot(b.x - x, b.z - z) < b.r + R) return false;
+    if (c) for (const b of c) if (!(oldOnly && b.fresh) && Math.hypot(b.x - x, b.z - z) < b.r + R) return false;
   }
   return true;
 }
@@ -692,7 +706,7 @@ const MG = 100, miniGrid = new Map();
 const miniBuildings = { push(b) { let x = 0, z = 0; for (const p of b.pts) { x += p.x; z += p.z; } const k = Math.floor(x / b.pts.length / MG) * 8192 + Math.floor(z / b.pts.length / MG), c = miniGrid.get(k); if (c) c.push(b); else miniGrid.set(k, [b]); } };
 // where OpenStreetMap already has buildings drawn in detail we do not invent more
 const OG = 60, osmGrid = new Map();
-function osmCount(x, z) { let n = 0; for (let ix = -1; ix <= 1; ix++) for (let iz = -1; iz <= 1; iz++) for (const b of osmGrid.get((Math.floor(x / OG) + ix) * 8192 + Math.floor(z / OG) + iz) || NONE) if (Math.hypot(b.x - x, b.z - z) < 60) n++; return n; }
+function osmCount(x, z) { let n = 0; for (let ix = -1; ix <= 1; ix++) for (let iz = -1; iz <= 1; iz++) for (const b of osmGrid.get((Math.floor(x / OG) + ix) * 8192 + Math.floor(z / OG) + iz) || NONE) if (!(oldOnly && b.f) && Math.hypot(b.x - x, b.z - z) < 60) n++; return n; }
 
 const WALLS = ['#f4f1ea', '#fbfaf6', '#efe6d2', '#f3e2bd', '#ecd9cf', '#e6ecef', '#f7efe0'];
 const ROOFS = ['#c8643c', '#b9573a', '#d07a4c', '#a94f38', '#c26a47'];
@@ -700,14 +714,16 @@ const WINDOW = C('#2e4458'), DOOR = C('#7a4a2c');
 
 // buildings that exist in OpenStreetMap: real footprints
 for (const b of MAP.buildings) {
+  era(!!b.f);
   const pts = b.p.map(W), n = pts.length;
   let area = 0, cx = 0, cz = 0, low = 1e9;
   for (let i = 0; i < n; i++) { const p = pts[i], q = pts[(i + 1) % n]; area += p.x * q.z - q.x * p.z; cx += p.x; cz += p.z; low = Math.min(low, height(p.x, p.z)); }
   area /= 2; cx /= n; cz /= n;
   B.at(cx, cz);                                                // the floor is level, at the height of the middle of the building
   const big = Math.abs(area) > 400, tall = b.l >= 3, foot = Math.min(-0.3, low - B.base - 0.3);
-  const h = b.l ? b.l * 3.1 : big ? 7 : (rnd() < 0.55 ? 6.2 : 3.2);
+  const h = b.l ? b.l * 3.1 : big ? 7 : (rand() < 0.55 ? 6.2 : 3.2);
   const wall = C(big ? pick(['#d9d6cf', '#cfd5d8', '#e2ddd0']) : pick(WALLS)), roof = C(big || tall ? '#8d9296' : pick(ROOFS));
+  if (!b.x) {                                                  // (x: part of the castle, drawn in stone by castelo.js)
   for (let i = 0; i < n; i++) {
     const p = pts[i], q = pts[(i + 1) % n];
     B.quad([p.x, foot, p.z], [q.x, foot, q.z], [q.x, h, q.z], [p.x, h, p.z], wall);
@@ -726,10 +742,12 @@ for (const b of MAP.buildings) {
     for (let i = 0; i < n; i++) { const j = (i + 1) % n; B.quad([pts[i].x, h, pts[i].z], [pts[j].x, h, pts[j].z], [inner[j].x, h + 1.7, inner[j].z], [inner[i].x, h + 1.7, inner[i].z], roof); }
     flatPoly(B, inner, h + 1.7, roof);
   }
-  blobs.push({ x: cx, z: cz, r: Math.max(...pts.map(p => Math.hypot(p.x - cx, p.z - cz))) });
   miniBuildings.push({ pts, c: '#8b8f96' });
-  const k = Math.floor(cx / OG) * 8192 + Math.floor(cz / OG), c = osmGrid.get(k); if (c) c.push({ x: cx, z: cz }); else osmGrid.set(k, [{ x: cx, z: cz }]);
+  }
+  blobs.push({ x: cx, z: cz, r: Math.max(...pts.map(p => Math.hypot(p.x - cx, p.z - cz))), fresh: !!b.f });
+  const k = Math.floor(cx / OG) * 8192 + Math.floor(cz / OG), c = osmGrid.get(k); if (c) c.push({ x: cx, z: cz, f: b.f }); else osmGrid.set(k, [{ x: cx, z: cz, f: b.f }]);
 }
+era();
 
 // ---------- places modelled by hand: Rua dos Lavradios with the home (lavradios.js) and Tiago's building (tiago.js) ----------
 const kit = { THREE, B, G, C, box, frame, flatPoly, hipRoof, strip, segs, roads, blobs, miniBuildings, rnd, segDist, near, addSeg, addRoad, height, newBuilder: () => new Builder(false) };
@@ -738,25 +756,29 @@ const H = LAV.home;      // { spawn, ax, az (from the road towards the house), c
 const TIAGO = window.buildTiago(kit);      // { cx, cz, top, door, bay, obstacles, inZone }
 const obstacles = LAV.obstacles.concat(TIAGO.obstacles);       // parked cars: circles {x, z, r}
 const handMade = (x, z) => LAV.inZone(x, z) || TIAGO.inZone(x, z);
+const CASTLE = window.buildCastle({ ...kit, W, ring, pip, data: MAP.castle });      // Leiria castle (castelo.js): { x, z, inZone }
 
 // ---------- filler houses where OpenStreetMap has no building mapped ----------
-const inAny = (polys, x, z) => polys.some(p => pip(p, x, z));
+const inAny = (polys, x, z) => { const n = oldOnly ? polys.old : polys.length; for (let i = 0; i < n; i++) if (pip(polys[i], x, z)) return true; return false; };
 const FILL = new Set(['residential', 'tertiary', 'unclassified', 'secondary', 'living_street']);
 for (const r of roads) {
   if (!FILL.has(r.type) || r.noWall) continue;
+  era(!!r.fresh);
   const line = r.raw || r.pts;                                 // the points as they come from the map, so that these houses do not depend on the ramps
   for (let i = 0; i < line.length - 1; i++) {
     const a = line[i], b = line[i + 1], len = Math.hypot(b.x - a.x, b.z - a.z), dx = (b.x - a.x) / len, dz = (b.z - a.z) / len;
-    for (let s = 6 + rnd() * 8; s < len; s += 15 + rnd() * 9) for (const side of [1, -1]) {
-      if (rnd() > 0.78) continue;
-      const w = 8 + rnd() * 4, dp = 7 + rnd() * 3, set = r.st.w / 2 + (r.st.side || 0) + 4 + rnd() * 3.5 + dp / 2;
+    for (let s = 6 + rand() * 8; s < len; s += 15 + rand() * 9) for (const side of [1, -1]) {
+      if (rand() > 0.78) continue;
+      const w = 8 + rand() * 4, dp = 7 + rand() * 3, set = r.st.w / 2 + (r.st.side || 0) + 4 + rand() * 3.5 + dp / 2;
       const nx = -dz * side, nz = dx * side, x = a.x + dx * s + nx * set, z = a.z + dz * s + nz * set, rad = Math.hypot(w, dp) / 2;
-      if (!inWorld(x, z, 15) || handMade(x, z) || osmCount(x, z) >= 4) continue;
-      if (!roadClear(x, z, rad * 0.8) || !blobFree(x, z, rad, 1.5) || inAny(waters, x, z) || inAny(forests, x, z) || inAny(industrial, x, z) || inAny(pitches, x, z)) continue;
+      const free = () => inWorld(x, z, 15) && !handMade(x, z) && osmCount(x, z) < 4 && roadClear(x, z, rad * 0.8) && blobFree(x, z, rad, 1.5) && !inAny(waters, x, z) && !inAny(forests, x, z) && !inAny(industrial, x, z) && !inAny(pitches, x, z);
+      if (!free()) continue;
       const f = frame(x, z, dx, dz, -nx, -nz);                  // -v faces the road
-      const h = rnd() < 0.55 ? 6.2 : 3.2, wall = C(pick(WALLS)), roof = C(pick(ROOFS)), hu = w / 2, hv = dp / 2;
-      blobs.push({ x, z, r: rad });
-      if (onBank(x, z, rad)) continue;                          // no house in the side of a ramp
+      const h = rand() < 0.55 ? 6.2 : 3.2, wall = C(pick(WALLS)), roof = C(pick(ROOFS)), hu = w / 2, hv = dp / 2;
+      let gone = onBank(x, z, rad) || CASTLE.inZone(x, z);     // no house in the side of a ramp, nor in the castle
+      if (oldOnly) { oldOnly = false; gone = gone || !free(); oldOnly = true; }      // nor where the newer part of the map has something (the house still takes its turn, so that the others stay where they were)
+      blobs.push({ x, z, r: rad, fresh: !!r.fresh });
+      if (gone) continue;
       B.at(x, z);
       box(B, f, -hu, hu, -0.3, h, -hv, hv, wall);
       box(B, f, -hu - 0.4, hu + 0.4, h, h + 0.15, -hv - 0.4, hv + 0.4, roof);
@@ -769,6 +791,7 @@ for (const r of roads) {
   }
 }
 
+era();
 buildRoadEdges();
 buildBridges();
 
@@ -776,7 +799,7 @@ buildBridges();
 function nearestSeg(x, z, max, test = () => true, ref) {       // { s, d, px, pz, t } of the nearest road segment (ref: at about that height)
   const cell = near(x, z), lv = ref !== undefined && cell.high, g = lv ? height(x, z) : 0;
   let best = null;
-  for (const s of cell) if (s.road && test(s)) { const q = segDist(x, z, s); if (q.d < max && (!best || q.d < best.d) && (!lv || Math.abs(segTop(s, q.t, g) - ref) < LEVEL)) best = { s, ...q }; }
+  for (const s of cell) if (s.road && !(oldOnly && s.fresh) && test(s)) { const q = segDist(x, z, s); if (q.d < max && (!best || q.d < best.d) && (!lv || Math.abs(segTop(s, q.t, g) - ref) < LEVEL)) best = { s, ...q }; }
   return best;
 }
 const along = s => { const l = Math.hypot(s.bx - s.ax, s.bz - s.az) || 1; return [(s.bx - s.ax) / l, (s.bz - s.az) / l]; };
@@ -796,13 +819,16 @@ const roadside = (q, x, z, out) => {                           // frame at the s
   B.base = segTop(q.s, q.t, height(q.px + nx * k, q.pz + nz * k));
   return frame(q.px + nx * k, q.pz + nz * k, dx, dz, nx, nz);
 };
+let signalNo = 0;
 for (const c of MAP.signals.map(W)) {                          // traffic lights
+  era(signalNo++ >= OLD.signals);
   const q = nearestSeg(c.x, c.z, 10, s => !s.noWall);
   if (!q) continue;
-  const f = roadside(q, c.x + rnd() - 0.5, c.z + rnd() - 0.5, 0.45), dark = C('#2a2d31');
+  const f = roadside(q, c.x + rand() - 0.5, c.z + rand() - 0.5, 0.45), dark = C('#2a2d31');
   box(B, f, -0.06, 0.06, -0.3, 3.3, -0.06, 0.06, C('#5b6066')); box(B, f, -0.17, 0.17, 2.4, 3.4, -0.17, 0.17, dark);
   [['#e23b2f', 3.08], ['#f0b429', 2.78], ['#3fbf5a', 2.48]].forEach(([col, y]) => { for (const u of [-0.18, 0.18]) B.quad(f.pt(u, y, -0.1), f.pt(u, y, 0.1), f.pt(u, y + 0.22, 0.1), f.pt(u, y + 0.22, -0.1), C(col)); });
 }
+era();
 for (const c of MAP.stops.map(W)) {                            // bus stops: a small shelter with a bench and a sign
   const q = nearestSeg(c.x, c.z, 16, s => !s.noWall && s.side > 0);
   if (!q || handMade(c.x, c.z)) continue;
@@ -820,7 +846,8 @@ for (const c of MAP.stops.map(W)) {                            // bus stops: a s
   for (const r of roads) {
     const out = r.noWall && r.name ? r.st.w / 2 + 0.6 : r.st.side ? r.st.w / 2 + 0.35 : 0;
     if (!out) continue;
-    let run = 18 + rnd() * 18, flip = rnd() < 0.5 ? 1 : -1;
+    const R = r.fresh ? rnd2 : rnd;
+    let run = 18 + R() * 18, flip = R() < 0.5 ? 1 : -1;
     for (let i = 0; i < r.pts.length - 1; i++) {
       const a = r.pts[i], b = r.pts[i + 1], l = Math.hypot(b.x - a.x, b.z - a.z), dx = (b.x - a.x) / l, dz = (b.z - a.z) / l;
       for (; run < l; run += 36, flip = -flip) {
@@ -887,23 +914,32 @@ const camMeshes = buildMeshes.concat(shellMeshes);          // what the camera m
 
 // ---------- trees (drawn in 500 m groups) ----------
 {
-  const TG = 500, groups = new Map();
+  const TG = 500, groups = new Map(), late = new Map();        // late: the trees of the part of the map that was added later
+  const free = (x, z) => inWorld(x, z, -150) && !handMade(x, z) && roadClear(x, z, 1.6) && blobFree(x, z, 1.2, 0.5) && !inAny(waters, x, z) && !inAny(pools, x, z) && !inAny(pitches, x, z) && (oldOnly || !CASTLE.inZone(x, z));
   const tryTree = (x, z, pine) => {
-    if (!inWorld(x, z, -150) || handMade(x, z) || !roadClear(x, z, 1.6) || !blobFree(x, z, 1.2, 0.5) || inAny(waters, x, z) || inAny(pools, x, z) || inAny(pitches, x, z)) return;
-    const k = Math.floor(x / TG) * 8192 + Math.floor(z / TG);
-    (groups.get(k) || groups.set(k, []).get(k)).push({ x, z, pine, s: 0.8 + rnd() * 0.9 });
+    if (!free(x, z)) return;
+    const k = Math.floor(x / TG) * 8192 + Math.floor(z / TG), to = oldOnly ? groups : late, tree = { x, z, pine, s: 0.8 + rand() * 0.9 };
+    if (oldOnly) { oldOnly = false; tree.gone = !free(x, z); oldOnly = true; }       // the newer part of the map has something here now: no tree (but it still takes its turn)
+    (to.get(k) || to.set(k, []).get(k)).push(tree);
   };
-  for (const p of forests) {
+  forests.forEach((p, i) => {
+    era(i >= forests.old);
     const n = Math.min(500, (p.x1 - p.x0) * (p.z1 - p.z0) / 90);
-    for (let i = 0; i < n; i++) { const x = p.x0 + rnd() * (p.x1 - p.x0), z = p.z0 + rnd() * (p.z1 - p.z0); if (pip(p, x, z)) tryTree(x, z, true); }
-  }
-  const total = (BOUNDS.x1 - BOUNDS.x0 + 300) * (BOUNDS.z1 - BOUNDS.z0 + 300) / 1e6 * 600;       // about 600 trees per square kilometre
-  for (let i = 0; i < total; i++) tryTree(BOUNDS.x0 - 150 + rnd() * (BOUNDS.x1 - BOUNDS.x0 + 300), BOUNDS.z0 - 150 + rnd() * (BOUNDS.z1 - BOUNDS.z0 + 300), rnd() < 0.35);
+    for (let j = 0; j < n; j++) { const x = p.x0 + rand() * (p.x1 - p.x0), z = p.z0 + rand() * (p.z1 - p.z0); if (pip(p, x, z)) tryTree(x, z, true); }
+  });
+  era(false);
+  const total = (OB.x1 - OB.x0 + 300) * (OB.z1 - OB.z0 + 300) / 1e6 * 600;       // about 600 trees per square kilometre
+  for (let i = 0; i < total; i++) tryTree(OB.x0 - 150 + rand() * (OB.x1 - OB.x0 + 300), OB.z0 - 150 + rand() * (OB.z1 - OB.z0 + 300), rand() < 0.35);
+  era(true);
+  const more = (BOUNDS.x1 - BOUNDS.x0 + 300) * (BOUNDS.z1 - OB.z1) / 1e6 * 600;  // and the same in the strip that was added to the south
+  for (let i = 0; i < more; i++) tryTree(BOUNDS.x0 - 150 + rand() * (BOUNDS.x1 - BOUNDS.x0 + 300), OB.z1 + 150 + rand() * (BOUNDS.z1 - OB.z1), rand() < 0.35);
+  era();
   const mat = new THREE.MeshLambertMaterial({ flatShading: true });
   const trunkG = new THREE.CylinderGeometry(0.16, 0.26, 2.6, 5).translate(0, 0.7, 0), pineG = new THREE.ConeGeometry(1.5, 4.4, 6).translate(0, 3.7, 0), roundG = new THREE.IcosahedronGeometry(1.7, 0).translate(0, 3.1, 0);
   const m = new THREE.Matrix4(), q = new THREE.Quaternion(), up = new THREE.Vector3(0, 1, 0), brown = C('#7a5a3c');
-  const put = (mesh, i, s, col) => { m.compose(new THREE.Vector3(s.x, height(s.x, s.z), s.z), q.setFromAxisAngle(up, rnd() * 6.28), new THREE.Vector3(s.s, s.s, s.s)); mesh.setMatrixAt(i, m); mesh.setColorAt(i, col); };
-  for (const spots of groups.values()) {
+  const put = (mesh, i, s, col) => { const k = s.gone ? 0 : s.s; m.compose(new THREE.Vector3(s.x, height(s.x, s.z), s.z), q.setFromAxisAngle(up, rand() * 6.28), new THREE.Vector3(k, k, k)); mesh.setMatrixAt(i, m); mesh.setColorAt(i, col); };
+  for (const [set, fresh] of [[groups, false], [late, true]]) for (const spots of set.values()) {
+    rand = fresh ? rnd2 : rnd;
     const pines = spots.filter(s => s.pine), rounds = spots.filter(s => !s.pine);
     const made = [[trunkG, spots, () => brown], [pineG, pines, () => C(pick(['#2f7a45', '#35854a', '#2a6d3f']))], [roundG, rounds, () => C(pick(['#4f9a43', '#5fae4c', '#6bb84f', '#458a3c']))]];
     for (const [geo, list, colour] of made) {
@@ -913,6 +949,7 @@ const camMeshes = buildMeshes.concat(shellMeshes);          // what the camera m
       mesh.computeBoundingSphere(); mesh.castShadow = true; scene.add(mesh);
     }
   }
+  era();
 }
 
 // ---------- clouds ----------
@@ -922,7 +959,7 @@ const clouds = new THREE.Group();
   for (let i = 0; i < 70; i++) {
     const g = new THREE.Group();
     for (let k = 0; k < 4; k++) { const p = new THREE.Mesh(geo, mat); p.position.set((k - 1.5) * 14 + rnd() * 6, rnd() * 5, rnd() * 10); p.scale.set(14 + rnd() * 10, 7 + rnd() * 4, 11 + rnd() * 6); g.add(p); }
-    g.position.set(BOUNDS.x0 - 600 + rnd() * (BOUNDS.x1 - BOUNDS.x0 + 1200), 300 + rnd() * 90, BOUNDS.z0 - 600 + rnd() * (BOUNDS.z1 - BOUNDS.z0 + 1200));
+    g.position.set(OB.x0 - 600 + rnd() * (OB.x1 - OB.x0 + 1200), 300 + rnd() * 90, OB.z0 - 600 + rnd() * (BOUNDS.z1 - OB.z0 + 1200));
     clouds.add(g);
   }
   scene.add(clouds);
@@ -948,6 +985,7 @@ function addMarker(text, colour, x, z, y) {
 }
 addMarker('Casa', '#ff8a1f', H.cx, H.cz, 11);
 addMarker('Tiago', '#2f7fe0', TIAGO.cx, TIAGO.cz, TIAGO.top + 5);
+addMarker('Castelo', '#9a6a3a', CASTLE.x, CASTLE.z, 26);
 
 // ---------- people: you and Tiago ----------
 function makePerson(shirt, hair, trousers) {
@@ -1409,7 +1447,7 @@ function drawHud() {
   const hard = active() && mission.level === 2, help = active() && mission.level < 2;      // hard level: no help at all
   let name = null, bd = 16;
   for (const s of near(st.x, st.z)) if (s.name) { const d = segDist(st.x, st.z, s).d; if (d < bd) { bd = d; name = s.name; } }
-  streetEl.textContent = indoor ? 'Casa do Tiago' : name || (Math.hypot(st.x - TIAGO.cx, st.z - TIAGO.cz) < 60 ? 'Prédio do Tiago' : Math.hypot(st.x, st.z) < 700 ? 'Gândara' : 'Leiria');
+  streetEl.textContent = indoor ? 'Casa do Tiago' : name || (Math.hypot(st.x - TIAGO.cx, st.z - TIAGO.cz) < 60 ? 'Prédio do Tiago' : CASTLE.inZone(st.x, st.z) ? 'Castelo de Leiria' : Math.hypot(st.x, st.z) < 700 ? 'Gândara' : 'Leiria');
   const hd = Math.hypot(H.cx - st.x, H.cz - st.z);
   homeEl.textContent = hd < 25 ? 'Casa — estás em casa' : 'Casa: ' + metres(hd);
   homeEl.style.display = mini.style.display = hard ? 'none' : '';
@@ -1551,7 +1589,7 @@ function tick(now) {
   requestAnimationFrame(tick);
 }
 requestAnimationFrame(tick);
-window.__game = { buildMs: Math.round(performance.now() - T_START), THREE, scene, camera, renderer, st, car, bike, getRide: () => ride, TOP_SPEED, H, TIAGO, segs, roads, near, keepOnRoad, onSurface, floorAt, bridges, height, mission, tiago, graph, startMission, drawHud, isDriving: () => driving, isIndoor: () => indoor, getTalk: () => talk, enterFlat, leaveFlat, FLAT, SOFA, follow, setDriving: v => { driving = v; }, step, goHome };   // handy for debugging in the console
+window.__game = { buildMs: Math.round(performance.now() - T_START), THREE, scene, camera, renderer, st, car, bike, getRide: () => ride, TOP_SPEED, H, TIAGO, segs, roads, near, keepOnRoad, onSurface, floorAt, bridges, CASTLE, height, mission, tiago, graph, startMission, drawHud, isDriving: () => driving, isIndoor: () => indoor, getTalk: () => talk, enterFlat, leaveFlat, FLAT, SOFA, follow, setDriving: v => { driving = v; }, step, goHome };   // handy for debugging in the console
 </script>
 </body>
 </html>
