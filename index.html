@@ -140,7 +140,7 @@ function segDist(x, z, s) {
   let t = l2 ? ((x - s.ax) * dx + (z - s.az) * dz) / l2 : 0;
   t = Math.max(0, Math.min(1, t));
   const px = s.ax + dx * t, pz = s.az + dz * t;
-  return { d: Math.hypot(x - px, z - pz), px, pz };
+  return { d: Math.hypot(x - px, z - pz), px, pz, t };
 }
 
 // ---------- terrain: real heights (EU-DEM), on a 10 m grid ----------
@@ -169,7 +169,7 @@ function height(x, z) {                            // height of the ground: exac
 // A "draped" builder lays flat things on the terrain; the other one lifts each object by its base height.
 const CHUNK = 250, MAX_EDGE2 = 6 * 6, DRAPE_LIFT = 0.04;
 class Builder {
-  constructor(drape) { this.chunks = new Map(); this.key = null; this.cur = null; this.drape = drape; this.base = 0; }
+  constructor(drape) { this.chunks = new Map(); this.key = null; this.cur = null; this.drape = drape; this.base = 0; this.abs = false; }   // abs: heights are given as they are (bridge decks), not above the ground
   bucket(x, z) {
     const key = Math.floor(x / CHUNK) * 4096 + Math.floor(z / CHUNK);
     if (key !== this.key) { this.key = key; this.cur = this.chunks.get(key); if (!this.cur) this.chunks.set(key, this.cur = { pos: [], col: [] }); }
@@ -183,13 +183,13 @@ class Builder {
   }
   lay(a, b, c, col, depth) {                       // cut big triangles so that they follow the ground
     const ab = (a[0] - b[0]) ** 2 + (a[2] - b[2]) ** 2, bc = (b[0] - c[0]) ** 2 + (b[2] - c[2]) ** 2, ca = (c[0] - a[0]) ** 2 + (c[2] - a[2]) ** 2, m = Math.max(ab, bc, ca);
-    if (m > MAX_EDGE2 && depth < 14) {
+    if (m > MAX_EDGE2 && depth < 14 && !this.abs) {
       if (m === ab) { const p = [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2, (a[2] + b[2]) / 2]; this.lay(a, p, c, col, depth + 1); this.lay(p, b, c, col, depth + 1); }
       else if (m === bc) { const p = [(b[0] + c[0]) / 2, (b[1] + c[1]) / 2, (b[2] + c[2]) / 2]; this.lay(a, b, p, col, depth + 1); this.lay(a, p, c, col, depth + 1); }
       else { const p = [(c[0] + a[0]) / 2, (c[1] + a[1]) / 2, (c[2] + a[2]) / 2]; this.lay(a, b, p, col, depth + 1); this.lay(p, b, c, col, depth + 1); }
       return;
     }
-    const k = this.bucket(a[0], a[2]), y = p => p[1] + DRAPE_LIFT + height(p[0], p[2]);
+    const k = this.bucket(a[0], a[2]), y = this.abs ? p => p[1] + DRAPE_LIFT : p => p[1] + DRAPE_LIFT + height(p[0], p[2]);
     k.pos.push(a[0], y(a), a[2], b[0], y(b), b[2], c[0], y(c), c[2]); k.col.push(col.r, col.g, col.b, col.r, col.g, col.b, col.r, col.g, col.b);
   }
   quad(a, b, c, d, col) { this.tri(a, b, c, col); this.tri(a, c, d, col); }
@@ -232,18 +232,23 @@ function flatPoly(B, pts, y, col) {
 function disc(B, x, z, r, y, col) {
   for (let k = 0; k < 8; k++) { const a0 = k / 8 * Math.PI * 2, a1 = (k + 1) / 8 * Math.PI * 2; B.tri([x, y, z], [x + Math.cos(a0) * r, y, z + Math.sin(a0) * r], [x + Math.cos(a1) * r, y, z + Math.sin(a1) * r], col); }
 }
-function strip(B, pts, w, y, col) {                // a road surface: one continuous band with mitred corners and round ends
-  const h = w / 2, n = pts.length, L = [], R = [];
+function strip(B, pts, w, y, col, r) {             // a road surface: one continuous band with mitred corners and round ends (r: a road with ramps and bridges)
+  const h = w / 2, n = pts.length, L = [], R = [], up = i => r && r.lift ? r.lift[i] : 0;
   const dir = (a, b) => { const l = Math.hypot(b.x - a.x, b.z - a.z) || 1; return [(b.x - a.x) / l, (b.z - a.z) / l]; };
   for (let i = 0; i < n; i++) {
     const d0 = dir(pts[Math.max(0, i - 1)], pts[Math.max(1, i)]), d1 = dir(pts[Math.min(n - 2, i)], pts[Math.min(n - 1, i + 1)]);
     let tx = d0[0] + d1[0], tz = d0[1] + d1[1]; const tl = Math.hypot(tx, tz);
     if (tl < 1e-6) { tx = d1[0]; tz = d1[1]; } else { tx /= tl; tz /= tl; }
     const k = h / Math.max(0.5, tx * d1[0] + tz * d1[1]), nx = -tz * k, nz = tx * k, p = pts[i];
-    L.push([p.x + nx, y, p.z + nz]); R.push([p.x - nx, y, p.z - nz]);
+    L.push([p.x + nx, y + up(i), p.z + nz]); R.push([p.x - nx, y + up(i), p.z - nz]);
   }
-  for (let i = 0; i < n - 1; i++) B.quad(L[i], L[i + 1], R[i + 1], R[i], col);
-  disc(B, pts[0].x, pts[0].z, h, y, col); disc(B, pts[n - 1].x, pts[n - 1].z, h, y, col);
+  for (let i = 0; i < n - 1; i++) {
+    if (r && r.deck && r.deck[i]) {                            // a bridge deck: straight from one point to the next, whatever the ground does
+      const a = y + r.Y[i], b = y + r.Y[i + 1];
+      B.abs = true; B.quad([L[i][0], a, L[i][2]], [L[i + 1][0], b, L[i + 1][2]], [R[i + 1][0], b, R[i + 1][2]], [R[i][0], a, R[i][2]], col); B.abs = false;
+    } else B.quad(L[i], L[i + 1], R[i + 1], R[i], col);
+  }
+  disc(B, pts[0].x, pts[0].z, h, y + up(0), col); disc(B, pts[n - 1].x, pts[n - 1].z, h, y + up(n - 1), col);
 }
 
 // ---------- scene ----------
@@ -314,42 +319,182 @@ const ROAD = {
 for (const k of ['motorway', 'trunk', 'primary', 'secondary', 'tertiary']) ROAD[k + '_link'] = { ...ROAD[k], w: Math.max(5.5, ROAD[k].w - 3), dash: false, side: 0 };
 const BIG = new Set(['motorway', 'trunk', 'primary', 'motorway_link', 'trunk_link']);
 
+// ---------- bridges and underpasses ----------
+// OpenStreetMap says which roads are bridges (b) and which pass under another road (u). Here a bridge is a deck that goes straight from one
+// end to the other, high enough above what passes under it, and the roads that lead to it climb a ramp: "lift" is how far above the ground
+// a road is at each of its points. A road that passes over an underpass gets a short bridge of its own there.
+const CLEAR = 5.4, RAMP = 0.055, LEVEL = 2.3;     // deck above the road under it (m) · slope of the ramps · surfaces further apart than LEVEL are different floors
+const NET = [], bridges = [];
+{
+  const dist = (a, b) => Math.hypot(a.x - b.x, a.z - b.z), asSeg = (a, b) => ({ ax: a.x, az: a.z, bx: b.x, bz: b.z });
+  for (const m of MAP.roads) {
+    const pts = m.p.map(W).filter((p, i, a) => !i || Math.hypot(p.x - a[i - 1].x, p.z - a[i - 1].z) > 0.05);
+    if (pts.length > 1) NET.push({ n: m.n, t: m.t, b: !!m.b, u: !!m.u, pts, raw: pts, st: ROAD[m.t] || ROAD.residential, cuts: [] });
+  }
+  // 1. where a bridge or an underpass crosses another road without meeting it
+  const CG = 80, cg = new Map(), cross = [];
+  const cells = (a, b, f) => { for (let ix = Math.floor(Math.min(a.x, b.x) / CG); ix <= Math.floor(Math.max(a.x, b.x) / CG); ix++) for (let iz = Math.floor(Math.min(a.z, b.z) / CG); iz <= Math.floor(Math.max(a.z, b.z) / CG); iz++) f(ix * 8192 + iz); };
+  NET.forEach((r, ri) => { for (let i = 0; i < r.pts.length - 1; i++) cells(r.pts[i], r.pts[i + 1], k => { const c = cg.get(k); if (c) c.push(ri, i); else cg.set(k, [ri, i]); }); });
+  const same = (p, q) => Math.abs(p.x - q.x) < 0.06 && Math.abs(p.z - q.z) < 0.06;
+  NET.forEach((r, ri) => {
+    if (!r.b && !r.u) return;
+    for (let i = 0; i < r.pts.length - 1; i++) {
+      const p = r.pts[i], q = r.pts[i + 1], seen = new Set();
+      cells(p, q, k => {
+        const list = cg.get(k);
+        for (let n = 0; n < list.length; n += 2) {
+          const oi = list[n], j = list[n + 1], o = NET[oi];
+          if (oi === ri || seen.has(oi * 4096 + j)) continue;
+          seen.add(oi * 4096 + j);
+          const a = o.pts[j], b = o.pts[j + 1];
+          if (same(p, a) || same(p, b) || same(q, a) || same(q, b)) continue;
+          const d1x = q.x - p.x, d1z = q.z - p.z, d2x = b.x - a.x, d2z = b.z - a.z, den = d1x * d2z - d1z * d2x;
+          if (Math.abs(den) < 1e-9) continue;
+          const t = ((a.x - p.x) * d2z - (a.z - p.z) * d2x) / den, u = ((a.x - p.x) * d1z - (a.z - p.z) * d1x) / den;
+          if (t <= 0 || t >= 1 || u <= 0 || u >= 1) continue;
+          const x = p.x + d1x * t, z = p.z + d1z * t;
+          if (r.b) { if (!o.b) cross.push({ up: r, lo: o, x, z }); }
+          else if (!o.b && !o.u) {                                 // r passes under o, and o is not marked as a bridge: o gets a short deck here
+            const sin = Math.abs(den) / (Math.hypot(d1x, d1z) * Math.hypot(d2x, d2z)), half = clamp((r.st.w / 2 + (r.st.side || 0) + 1.6) / Math.max(0.35, sin), 5, 24);
+            let s = dist(a, b) * u; for (let k2 = 0; k2 < j; k2++) s += dist(o.pts[k2], o.pts[k2 + 1]);
+            o.cuts.push([s - half, s + half]); cross.push({ up: o, lo: r, x, z });
+          }
+        }
+      });
+    }
+  });
+  // 2. the points where those short decks begin and end
+  for (const r of NET) {
+    r.deck = r.pts.slice(1).map(() => r.b);
+    if (r.b || !r.cuts.length) continue;
+    const A = [0]; for (let i = 1; i < r.pts.length; i++) A.push(A[i - 1] + dist(r.pts[i], r.pts[i - 1]));
+    const total = A[A.length - 1], all = r.pts.map((p, i) => ({ p, s: A[i] }));
+    for (const c of r.cuts) for (const s0 of c) {
+      const s = clamp(s0, 0, total);
+      if (all.some(o => Math.abs(o.s - s) < 0.6)) continue;
+      let i = 1; while (A[i] < s) i++;
+      const t = (s - A[i - 1]) / (A[i] - A[i - 1]);
+      all.push({ s, p: { x: r.pts[i - 1].x + (r.pts[i].x - r.pts[i - 1].x) * t, z: r.pts[i - 1].z + (r.pts[i].z - r.pts[i - 1].z) * t } });
+    }
+    all.sort((a, b) => a.s - b.s);
+    r.pts = all.map(o => o.p);
+    r.deck = all.slice(1).map((o, i) => { const mid = (o.s + all[i].s) / 2; return r.cuts.some(c => mid > c[0] && mid < c[1]); });
+  }
+  // 3. near a bridge the roads get a point every 18 m, so that the ramps have a smooth shape
+  const hot = [];
+  for (const r of NET) r.deck.forEach((d, i) => { if (d) hot.push({ x: (r.pts[i].x + r.pts[i + 1].x) / 2, z: (r.pts[i].z + r.pts[i + 1].z) / 2 }); });
+  for (const r of NET) {
+    const pts = [r.pts[0]], deck = [];
+    for (let i = 0; i < r.pts.length - 1; i++) {
+      const a = r.pts[i], b = r.pts[i + 1], l = dist(a, b), sg = asSeg(a, b);
+      const k = !r.deck[i] && l > 22 && hot.some(p => segDist(p.x, p.z, sg).d < 240) ? Math.ceil(l / 18) : 1;
+      for (let j = 1; j <= k; j++) { pts.push(j === k ? b : { x: a.x + (b.x - a.x) * j / k, z: a.z + (b.z - a.z) * j / k }); deck.push(r.deck[i]); }
+    }
+    r.pts = pts; r.deck = deck;
+  }
+  // 4. the network: points that roads share, and the stretches between them
+  const nodes = new Map(), nodeAt = p => { const k = Math.round(p.x * 10) + ',' + Math.round(p.z * 10); let n = nodes.get(k); if (!n) nodes.set(k, n = { x: p.x, z: p.z, e: [], lift: 0, Y: 0, g: null }); return n; };
+  const gOf = n => n.g === null ? (n.g = height(n.x, n.z)) : n.g;
+  for (const r of NET) {
+    r.nodes = r.pts.map(nodeAt); r.edges = [];
+    for (let i = 0; i < r.pts.length - 1; i++) { const e = { a: r.nodes[i], b: r.nodes[i + 1], l: Math.max(0.05, dist(r.pts[i], r.pts[i + 1])), deck: r.deck[i], comp: null }; e.a.e.push(e); e.b.e.push(e); r.edges.push(e); }
+  }
+  const inner = n => n.e.length > 1 && n.e.every(e => e.deck);   // a point in the middle of a bridge (its ends touch a road that is not a bridge)
+  for (const r of NET) for (const e0 of r.edges) {               // every bridge: its decks, the points in the middle and its ends
+    if (!e0.deck || e0.comp) continue;
+    const c = { L: 0.8, want: 0, ends: new Set(), inner: new Set() }, todo = [e0];
+    e0.comp = c; bridges.push(c);
+    while (todo.length) {
+      const e = todo.pop();
+      for (const n of [e.a, e.b]) { if (!inner(n)) { c.ends.add(n); continue; } c.inner.add(n); for (const f of n.e) if (!f.comp) { f.comp = c; todo.push(f); } }
+    }
+  }
+  // 5. how high: each bridge is lifted until it clears what passes under it, and the lift runs out along the roads that lead to it
+  const smooth = u => u * u * (3 - 2 * u);
+  const spread = c => {
+    const R = c.L / RAMP, far = new Map(), todo = [];
+    for (const n of c.ends) { far.set(n, 0); todo.push(n); }
+    while (todo.length) {
+      const n = todo.pop(), d = far.get(n);
+      n.lift = Math.max(n.lift, c.L * smooth(1 - d / R));
+      for (const e of n.e) { if (e.deck) continue; const m = e.a === n ? e.b : e.a, dm = d + e.l; if (dm < R && dm < (far.get(m) ?? 1e9)) { far.set(m, dm); todo.push(m); } }
+    }
+  };
+  const settle = c => {                                          // the deck: straight between its ends, never into the ground
+    let avg = 0;
+    for (const n of c.ends) { n.Y = gOf(n) + n.lift; avg += n.Y / c.ends.size; }
+    for (const n of c.inner) n.Y = avg;
+    for (let k = 0; k < 600 && c.inner.size; k++) for (const n of c.inner) { let s = 0, w = 0; for (const e of n.e) { const m = e.a === n ? e.b : e.a; s += m.Y / e.l; w += 1 / e.l; } n.Y = Math.max(s / w, gOf(n) + 0.3); }
+  };
+  const topAt = (r, x, z) => {                                   // the height of road r where it passes (x, z)
+    let bi = 0, bq = null;
+    for (let i = 0; i < r.pts.length - 1; i++) { const q = segDist(x, z, asSeg(r.pts[i], r.pts[i + 1])); if (!bq || q.d < bq.d) { bq = q; bi = i; } }
+    const a = r.nodes[bi], b = r.nodes[bi + 1];
+    return { e: r.edges[bi], y: r.deck[bi] ? a.Y + (b.Y - a.Y) * bq.t : height(x, z) + a.lift + (b.lift - a.lift) * bq.t };
+  };
+  const apply = () => { for (const n of nodes.values()) n.lift = 0; bridges.forEach(spread); bridges.forEach(settle); };
+  for (let pass = 0; pass < 6; pass++) {
+    apply();
+    for (const c of bridges) c.want = c.L;
+    for (const x of cross) { const up = topAt(x.up, x.x, x.z), c = up.e.comp, need = topAt(x.lo, x.x, x.z).y + CLEAR - up.y; if (c && need > 0.05) c.want = Math.max(c.want, Math.min(11, c.L + need)); }
+    let grown = false;
+    for (const c of bridges) if (c.want > c.L + 0.01) { c.L = c.want; grown = true; }
+    if (!grown) break;
+    if (pass === 5) apply();
+  }
+  for (const r of NET) {
+    r.high = r.deck.some(Boolean) || r.nodes.some(n => n.lift > 0.02);
+    if (r.high) { const mid = r.nodes.map(inner); r.Y = r.nodes.map((n, i) => mid[i] ? n.Y : gOf(n) + n.lift); r.lift = r.nodes.map((n, i) => r.Y[i] - gOf(n)); r.ends = r.nodes.map((n, i) => !mid[i]); }
+    r.nodes = r.edges = null;
+  }
+  for (const c of bridges) { const n = [...c.ends][0]; c.x = n.x; c.z = n.z; }
+}
+const rise = (s, t) => s.deck ? s.ya + (s.yb - s.ya) * t : s.la + (s.lb - s.la) * t;        // what to add to a height drawn on a segment (decks are drawn with G.abs)
+const segTop = (s, t, g) => s.deck ? s.ya + (s.yb - s.ya) * t : g + s.la + (s.lb - s.la) * t;   // height of the surface of a segment at t along it, where the ground is at g
+
 // every road is cut into straight segments, indexed in a grid so that "what is near this point?" is fast
 const segs = [], roads = [];
 const GRID = 50, SEG_REACH = 22, segGrid = new Map(), NONE = [];
 function addSeg(s) {
-  s.side = s.side || 0;
+  s.side = s.side || 0; s.la = s.la || 0; s.lb = s.lb || 0;
   s.x0 = Math.min(s.ax, s.bx); s.x1 = Math.max(s.ax, s.bx); s.z0 = Math.min(s.az, s.bz); s.z1 = Math.max(s.az, s.bz);
   segs.push(s);
   const m = s.w / 2 + SEG_REACH;
   for (let ix = Math.floor((s.x0 - m) / GRID); ix <= Math.floor((s.x1 + m) / GRID); ix++) for (let iz = Math.floor((s.z0 - m) / GRID); iz <= Math.floor((s.z1 + m) / GRID); iz++) {
-    const key = ix * 8192 + iz, cell = segGrid.get(key);
-    if (cell) cell.push(s); else segGrid.set(key, [s]);
+    const key = ix * 8192 + iz;
+    let cell = segGrid.get(key);
+    if (cell) cell.push(s); else segGrid.set(key, cell = [s]);
+    if (s.high) cell.high = true;                              // there is a ramp or a bridge around here
   }
   return s;
 }
 const near = (x, z) => segGrid.get(Math.floor(x / GRID) * 8192 + Math.floor(z / GRID)) || NONE;   // all segments within SEG_REACH of the point (and more)
-function addRoad(name, type, pts, st) {
-  const r = { name, type, st: st || ROAD[type] || ROAD.residential, pts };
+function addRoad(name, type, pts, st, net) {                   // net: what was worked out above for a road of the map
+  const r = { name, type, st: st || ROAD[type] || ROAD.residential, pts, segs: [] };
+  if (net) { r.raw = net.raw; if (net.high) { r.lift = net.lift; r.deck = net.deck; r.Y = net.Y; r.ends = net.ends; } }
   roads.push(r);
-  for (let i = 0; i < pts.length - 1; i++) addSeg({ ax: pts[i].x, az: pts[i].z, bx: pts[i + 1].x, bz: pts[i + 1].z, w: r.st.w, side: r.st.side || 0, name, type, road: r });
+  for (let i = 0; i < pts.length - 1; i++) {
+    const s = { ax: pts[i].x, az: pts[i].z, bx: pts[i + 1].x, bz: pts[i + 1].z, w: r.st.w, side: r.st.side || 0, name, type, road: r };
+    if (r.lift) { s.la = r.lift[i]; s.lb = r.lift[i + 1]; s.deck = r.deck[i]; s.ya = r.Y[i]; s.yb = r.Y[i + 1]; s.high = s.deck || s.la > 0.02 || s.lb > 0.02; }
+    r.segs.push(addSeg(s));
+  }
   return r;
 }
-for (const m of MAP.roads) {
-  const pts = m.p.map(W).filter((p, i, a) => !i || Math.hypot(p.x - a[i - 1].x, p.z - a[i - 1].z) > 0.05);
-  if (pts.length < 2) continue;
-  const r = addRoad(m.n, m.t, pts);
-  strip(G, pts, r.st.w, r.st.y, C(r.st.c));
+for (const net of NET) {
+  const pts = net.pts, r = addRoad(net.n, net.t, pts, null, net);
+  strip(G, pts, r.st.w, r.st.y, C(r.st.c), r);
   if (r.st.dash) {                                             // centre line
     const white = C('#e9e9e2');
     let carry = 0;
     for (let i = 0; i < pts.length - 1; i++) {
-      const a = pts[i], b = pts[i + 1], l = Math.hypot(b.x - a.x, b.z - a.z), dx = (b.x - a.x) / l, dz = (b.z - a.z) / l;
+      const a = pts[i], b = pts[i + 1], l = Math.hypot(b.x - a.x, b.z - a.z), dx = (b.x - a.x) / l, dz = (b.z - a.z) / l, sg = r.segs[i];
       let s = carry;
+      G.abs = !!sg.deck;
       for (; s + 3 <= l; s += 9) {
-        const x = a.x + dx * s, z = a.z + dz * s, nx = -dz * 0.12, nz = dx * 0.12, ex = x + dx * 3, ez = z + dz * 3, y = r.st.y + 0.04;
-        G.quad([x + nx, y, z + nz], [ex + nx, y, ez + nz], [ex - nx, y, ez - nz], [x - nx, y, z - nz], white);
+        const x = a.x + dx * s, z = a.z + dz * s, nx = -dz * 0.12, nz = dx * 0.12, ex = x + dx * 3, ez = z + dz * 3, y0 = r.st.y + 0.04 + rise(sg, s / l), y1 = r.st.y + 0.04 + rise(sg, (s + 3) / l);
+        G.quad([x + nx, y0, z + nz], [ex + nx, y1, ez + nz], [ex - nx, y1, ez - nz], [x - nx, y0, z - nz], white);
       }
+      G.abs = false;
       carry = Math.max(0, s - l);
     }
   }
@@ -357,20 +502,24 @@ for (const m of MAP.roads) {
 
 // ---------- where you can be: on the roadway and on the pavements, on foot or driving; walls beyond ----------
 const WALL_H = 1.1, WALL_T = 0.25, PLAYER_R = 0.35;
-function onSurface(x, z, withSide) {   // true when the point is on a roadway (or, withSide, also on its pavements)
-  for (const s of near(x, z)) {
+function onSurface(x, z, withSide, ref) {   // true when the point is on a roadway (or, withSide, also on its pavements). ref: only roads at about that height
+  const cell = near(x, z), lv = ref !== undefined && cell.high, g = lv ? height(x, z) : 0;
+  for (const s of cell) {
     const m = s.w / 2 + (withSide ? s.side : 0) + 0.05;
     if (x < s.x0 - m || x > s.x1 + m || z < s.z0 - m || z > s.z1 + m) continue;
-    if (segDist(x, z, s).d < m) return true;
+    const q = segDist(x, z, s);
+    if (q.d < m && (!lv || Math.abs(segTop(s, q.t, g) - ref) < LEVEL)) return true;
   }
   return false;
 }
-function keepOnRoad(x, z, r = PLAYER_R, walk = true) {   // the nearest point where a circle of radius r is still allowed (walk: pavements count)
+function keepOnRoad(x, z, r = PLAYER_R, walk = true, ref) {   // the nearest point where a circle of radius r is still allowed (walk: pavements count). ref: the height you are at, so that a bridge and the road under it stay apart
+  const cell = near(x, z), lv = ref !== undefined && cell.high, g = lv ? height(x, z) : 0;
   let best = null, bl = 0, bv = 1e9;
-  for (const s of near(x, z)) {
+  for (const s of cell) {
     const lim = s.w / 2 + (walk ? s.side : 0) - r;
     if (lim <= 0 || x < s.x0 - lim - bv || x > s.x1 + lim + bv || z < s.z0 - lim - bv || z > s.z1 + lim + bv) continue;
     const q = segDist(x, z, s), v = q.d - lim;
+    if (lv && Math.abs(segTop(s, q.t, g) - ref) > LEVEL) continue;
     if (v <= 0) return { x, z };
     if (v < bv) { bv = v; best = q; bl = lim; }
   }
@@ -378,11 +527,34 @@ function keepOnRoad(x, z, r = PLAYER_R, walk = true) {   // the nearest point wh
   const k = bl / best.d;
   return { x: best.px + (x - best.px) * k, z: best.pz + (z - best.pz) * k };
 }
+function floorAt(x, z, ref) {             // the height of what you stand on at (x, z): a ramp or a bridge when you are on one (ref = the height you were at), else the ground
+  const cell = near(x, z), g = height(x, z);
+  if (!cell.high) return g;
+  let best = g, bd = 1e9;
+  for (const s of cell) {
+    const m = s.w / 2 + s.side + 0.4;
+    if (x < s.x0 - m || x > s.x1 + m || z < s.z0 - m || z > s.z1 + m) continue;
+    const q = segDist(x, z, s);
+    if (q.d > m) continue;
+    const y = segTop(s, q.t, g), d = ref === undefined ? y : Math.abs(y - ref);     // nothing to go by: the lowest
+    if (d < bd) { bd = d; best = y; }
+  }
+  return best;
+}
+function onBank(x, z, r) {                // true when a circle touches a ramp or a bridge, or the bank beside it
+  const cell = near(x, z);
+  if (!cell.high) return false;
+  for (const s of cell) { if (!s.high) continue; const q = segDist(x, z, s), lift = s.deck ? 4 : s.la + (s.lb - s.la) * q.t; if (lift > 0.6 && q.d < s.w / 2 + s.side + lift * 1.5 + r + 1) return true; }
+  return false;
+}
+function toe(x, z, ox, oz, lift) {        // the foot of a bank that starts at (x, z), lift above the ground, and goes down towards (ox, oz): steeper where another road is in the way
+  for (const k of [1.5, 0.9, 0.45, 0.08]) { const tx = x + ox * lift * k, tz = z + oz * lift * k; if (k < 0.1 || !onSurface(tx, tz, true)) return { p: [tx, height(tx, tz) - 0.4, tz], soft: k > 1 }; }
+}
 function edgeRuns(s, side, off, open) {     // the stretches of one side of a segment (at distance off) where open() is false
   const dx = s.bx - s.ax, dz = s.bz - s.az, l = Math.hypot(dx, dz), runs = [];
   if (l < 1e-3) return { runs, at: null };
   const n = Math.max(1, Math.round(l)), e = 0.12 / l, ox = -dz / l * off * side, oz = dx / l * off * side;   // each run is a little longer, to close slight bends
-  const at = t => [s.ax + dx * t + ox, s.az + dz * t + oz], tAt = i => (i + 0.5) / n, isOpen = t => { const p = at(t); return open(p[0], p[1]); };
+  const at = t => [s.ax + dx * t + ox, s.az + dz * t + oz], tAt = i => (i + 0.5) / n, isOpen = t => { const p = at(t); return open(p[0], p[1], t); };
   let start = null, prev = false;
   for (let i = 0; i < n; i++) {
     const keep = !isOpen(tAt(i));
@@ -399,50 +571,102 @@ function edgeRuns(s, side, off, open) {     // the stretches of one side of a se
   if (start !== null) runs.push([start, 1 + e]);
   return { runs, at };
 }
-const sharpCorners = r => {                 // the points of a road that need a rounded corner: its ends and its sharp bends
+const sharpCorners = r => {                 // the points (their numbers) of a road that need a rounded corner: its ends and its sharp bends
   const p = r.pts, n = p.length, out = [];
   for (let i = 0; i < n; i++) {
     if (i > 0 && i < n - 1) {
       const ax = p[i].x - p[i - 1].x, az = p[i].z - p[i - 1].z, bx = p[i + 1].x - p[i].x, bz = p[i + 1].z - p[i].z;
       if ((ax * bx + az * bz) / (Math.hypot(ax, az) * Math.hypot(bx, bz) || 1) > 0.97) continue;
     }
-    out.push(p[i]);
+    out.push(i);
   }
   return out;
 };
 function buildRoadEdges() {
-  const wallCol = C('#d9d3c5'), paveCol = C('#cfccc3'), N = 12;
+  const wallCol = C('#d9d3c5'), paveCol = C('#cfccc3'), bankCol = C('#79ab5c'), stone = C('#b9b4a6'), N = 24;
   B.base = 0;
-  const wall = (ax, az, bx, bz, grow = 0) => {                // a wall that follows the ground: two faces and a top
+  const wall = (ax, az, bx, bz, grow, top) => {                // a wall that follows the road: two faces and a top. top(x, z, f) = height of the road there, f from 0 to 1 along the wall
     const len = Math.hypot(bx - ax, bz - az), k = Math.max(1, Math.ceil(len / 10)), t = WALL_T / 2 + grow;
     if (len < 1e-3) return;
     const nx = -(bz - az) / len * t, nz = (bx - ax) / len * t;
     for (let i = 0; i < k; i++) {
-      const x0 = ax + (bx - ax) * i / k, z0 = az + (bz - az) * i / k, x1 = ax + (bx - ax) * (i + 1) / k, z1 = az + (bz - az) * (i + 1) / k, h0 = height(x0, z0), h1 = height(x1, z1);
+      const x0 = ax + (bx - ax) * i / k, z0 = az + (bz - az) * i / k, x1 = ax + (bx - ax) * (i + 1) / k, z1 = az + (bz - az) * (i + 1) / k, h0 = top(x0, z0, i / k), h1 = top(x1, z1, (i + 1) / k);
       const a = [x0 + nx, h0 - 0.9, z0 + nz], b = [x1 + nx, h1 - 0.9, z1 + nz], c = [x1 - nx, h1 - 0.9, z1 - nz], d = [x0 - nx, h0 - 0.9, z0 - nz];
       const e = [a[0], h0 + WALL_H + grow, a[2]], f = [b[0], h1 + WALL_H + grow, b[2]], g = [c[0], h1 + WALL_H + grow, c[2]], j = [d[0], h0 + WALL_H + grow, d[2]];
       B.quad(a, b, f, e, wallCol); B.quad(d, c, g, j, wallCol); B.quad(e, f, g, j, wallCol);
     }
   };
-  const road = (x, z) => onSurface(x, z, false), walk = (x, z) => onSurface(x, z, true);
+  const bank = (s, side, at, t0, t1) => {                      // the side of a ramp: a slope from the wall down to the ground
+    const dx = s.bx - s.ax, dz = s.bz - s.az, l = Math.hypot(dx, dz), ox = -dz / l * side, oz = dx / l * side, k = Math.max(1, Math.ceil((t1 - t0) * l / 8));
+    let prev = null;
+    for (let i = 0; i <= k; i++) {
+      const t = t0 + (t1 - t0) * i / k, p = at(t), lift = s.la + (s.lb - s.la) * clamp(t, 0, 1), x = p[0] + ox * WALL_T / 2, z = p[1] + oz * WALL_T / 2;
+      const cur = lift > 0.12 ? { top: [x, height(x, z) + lift + 0.05, z], foot: toe(x, z, ox, oz, lift) } : null;
+      if (prev && cur) B.quad(prev.top, cur.top, cur.foot.p, prev.foot.p, prev.foot.soft && cur.foot.soft ? bankCol : stone);
+      prev = cur;
+    }
+  };
   for (const s of segs) {
     if (s.noWall) continue;                                    // some places (the home street) have their own walls
+    const top = (x, z, t) => segTop(s, t, height(x, z)), ref = (x, z, t) => near(x, z).high ? top(x, z, t) : undefined;   // openings only where a road at the same height meets this one
+    const road = (x, z, t) => onSurface(x, z, false, ref(x, z, t)), walk = (x, z, t) => onSurface(x, z, true, ref(x, z, t));
     for (const side of [1, -1]) {
       if (s.side) {                                            // pavement
         const { runs, at } = edgeRuns(s, side, s.w / 2 + s.side / 2, road), y = s.road.st.y + 0.07, dx = s.bx - s.ax, dz = s.bz - s.az, l = Math.hypot(dx, dz), hx = -dz / l * s.side / 2 * side, hz = dx / l * s.side / 2 * side;
-        for (const [t0, t1] of runs) { const p = at(t0), q = at(t1); G.quad([p[0] - hx, y, p[1] - hz], [q[0] - hx, y, q[1] - hz], [q[0] + hx, y, q[1] + hz], [p[0] + hx, y, p[1] + hz], paveCol); }
+        G.abs = !!s.deck;
+        for (const [t0, t1] of runs) { const p = at(t0), q = at(t1), y0 = y + rise(s, t0), y1 = y + rise(s, t1); G.quad([p[0] - hx, y0, p[1] - hz], [q[0] - hx, y1, q[1] - hz], [q[0] + hx, y1, q[1] + hz], [p[0] + hx, y0, p[1] + hz], paveCol); }
+        G.abs = false;
       }
       const { runs, at } = edgeRuns(s, side, s.w / 2 + s.side + WALL_T / 2, walk);
-      for (const [t0, t1] of runs) wall(...at(t0), ...at(t1));
+      for (const [t0, t1] of runs) {
+        wall(...at(t0), ...at(t1), 0, (x, z, f) => top(x, z, t0 + (t1 - t0) * f));
+        if (s.high && !s.deck) bank(s, side, at, t0, t1);
+      }
     }
   }
-  for (const r of roads) if (!r.noWall) for (const p of sharpCorners(r)) {      // rounded corners at dead ends and sharp bends
-    const side = r.noSide ? 0 : r.st.side || 0, r0 = r.st.w / 2, r1 = r0 + side, rad = r1 + WALL_T / 2, y = r.st.y + 0.07;
+  for (const r of roads) if (!r.noWall) for (const i of sharpCorners(r)) {      // rounded corners at dead ends and sharp bends
+    const p = r.pts[i], onDeck = !!r.deck && (!!r.deck[i] || !!r.deck[i - 1]), lift = r.lift ? r.lift[i] : 0;
+    const top = onDeck ? () => r.Y[i] : (x, z) => height(x, z) + lift, ref = (x, z) => near(x, z).high ? top(x, z) : undefined;
+    const side = r.noSide ? 0 : r.st.side || 0, r0 = r.st.w / 2, r1 = r0 + side, rad = r1 + WALL_T / 2, y = r.st.y + 0.07 + (onDeck ? r.Y[i] : lift);
+    G.abs = onDeck;
     for (let k = 0; k < N; k++) {
       const a0 = k / N * Math.PI * 2, a1 = (k + 1) / N * Math.PI * 2, am = (a0 + a1) / 2, c0 = Math.cos(a0), s0 = Math.sin(a0), c1 = Math.cos(a1), s1 = Math.sin(a1);
-      if (side && !road(p.x + Math.cos(am) * (r0 + side / 2), p.z + Math.sin(am) * (r0 + side / 2)))
+      const mx = p.x + Math.cos(am) * (r0 + 0.2), mz = p.z + Math.sin(am) * (r0 + 0.2), wx = p.x + Math.cos(am) * (rad - 0.02), wz = p.z + Math.sin(am) * (rad - 0.02);
+      if (side && !onSurface(mx, mz, false, ref(mx, mz)))
         G.quad([p.x + c0 * r0, y, p.z + s0 * r0], [p.x + c1 * r0, y, p.z + s1 * r0], [p.x + c1 * r1, y, p.z + s1 * r1], [p.x + c0 * r1, y, p.z + s0 * r1], paveCol);
-      if (!walk(p.x + Math.cos(am) * (rad - 0.02), p.z + Math.sin(am) * (rad - 0.02))) wall(p.x + c0 * rad, p.z + s0 * rad, p.x + c1 * rad, p.z + s1 * rad, 0.04);
+      if (!onSurface(wx, wz, true, ref(wx, wz))) wall(p.x + c0 * rad, p.z + s0 * rad, p.x + c1 * rad, p.z + s1 * rad, 0.04, top);
+    }
+    G.abs = false;
+  }
+}
+function buildBridges() {                 // under the decks: the slab, piers under the long ones, and the wall that closes the ramp at each end
+  const slab = C('#a7a296'), stone = C('#b9b4a6');
+  B.base = 0;
+  for (const r of roads) {
+    if (!r.deck) continue;
+    const half = r.st.w / 2 + (r.st.side || 0) + WALL_T, n = r.pts.length;
+    const unit = i => { const a = r.pts[i], b = r.pts[i + 1], l = Math.hypot(b.x - a.x, b.z - a.z) || 1; return [(b.x - a.x) / l, (b.z - a.z) / l, l]; };
+    for (let i = 0; i < n - 1; i++) {
+      if (!r.deck[i]) continue;
+      const a = r.pts[i], b = r.pts[i + 1], [dx, dz] = unit(i), nx = -dz * half, nz = dx * half, ya = r.Y[i] - 0.9, yb = r.Y[i + 1] - 0.9;
+      B.quad([a.x + nx, ya, a.z + nz], [b.x + nx, yb, b.z + nz], [b.x - nx, yb, b.z - nz], [a.x - nx, ya, a.z - nz], slab);
+      let j = i; while (j < n - 1 && r.deck[j]) j++;                                   // (i .. j) is one deck, when i is where it starts
+      if (i > 0 && r.deck[i - 1]) continue;
+      let total = 0; for (let k = i; k < j; k++) total += unit(k)[2];
+      const spans = Math.round(total / 22);
+      for (let m = 1; m < spans && total >= 34; m++) {         // piers, where the deck is well above the ground and nothing passes
+        let s = total * m / spans, k = i; while (k < j - 1 && s > unit(k)[2]) { s -= unit(k)[2]; k++; }
+        const [ux, uz, l] = unit(k), t = s / l, x = r.pts[k].x + ux * s, z = r.pts[k].z + uz * s, y = r.Y[k] + (r.Y[k + 1] - r.Y[k]) * t - 0.9, g = height(x, z), hw = r.st.w / 2 - 0.4;
+        if (y - g < 2.2 || [-1, -0.5, 0, 0.5, 1].some(f => onSurface(x - uz * hw * f, z + ux * hw * f, true, height(x - uz * hw * f, z + ux * hw * f)))) continue;
+        box(B, frame(x, z, ux, uz, -uz, ux), -0.55, 0.55, g - 1.5, y, -hw, hw, stone);
+      }
+    }
+    for (let i = 0; i < n; i++) {                              // the end of a deck that rests on a ramp: a wall across, down to the ground
+      const before = i > 0 && r.deck[i - 1], after = i < n - 1 && r.deck[i];
+      if (before === after || !r.ends[i]) continue;
+      const [dx, dz] = unit(after ? i : i - 1), p = r.pts[i], Y = r.Y[i], pts = [];
+      for (const side of [1, -1]) { const x = p.x - dz * half * side, z = p.z + dx * half * side; pts.push([x, Y, z], toe(x, z, -dz * side, dx * side, Math.max(0.1, Y - height(x, z))).p); }
+      B.quad(pts[0], pts[2], pts[3], pts[1], stone);
     }
   }
 }
@@ -520,8 +744,9 @@ const inAny = (polys, x, z) => polys.some(p => pip(p, x, z));
 const FILL = new Set(['residential', 'tertiary', 'unclassified', 'secondary', 'living_street']);
 for (const r of roads) {
   if (!FILL.has(r.type) || r.noWall) continue;
-  for (let i = 0; i < r.pts.length - 1; i++) {
-    const a = r.pts[i], b = r.pts[i + 1], len = Math.hypot(b.x - a.x, b.z - a.z), dx = (b.x - a.x) / len, dz = (b.z - a.z) / len;
+  const line = r.raw || r.pts;                                 // the points as they come from the map, so that these houses do not depend on the ramps
+  for (let i = 0; i < line.length - 1; i++) {
+    const a = line[i], b = line[i + 1], len = Math.hypot(b.x - a.x, b.z - a.z), dx = (b.x - a.x) / len, dz = (b.z - a.z) / len;
     for (let s = 6 + rnd() * 8; s < len; s += 15 + rnd() * 9) for (const side of [1, -1]) {
       if (rnd() > 0.78) continue;
       const w = 8 + rnd() * 4, dp = 7 + rnd() * 3, set = r.st.w / 2 + (r.st.side || 0) + 4 + rnd() * 3.5 + dp / 2;
@@ -530,6 +755,8 @@ for (const r of roads) {
       if (!roadClear(x, z, rad * 0.8) || !blobFree(x, z, rad, 1.5) || inAny(waters, x, z) || inAny(forests, x, z) || inAny(industrial, x, z) || inAny(pitches, x, z)) continue;
       const f = frame(x, z, dx, dz, -nx, -nz);                  // -v faces the road
       const h = rnd() < 0.55 ? 6.2 : 3.2, wall = C(pick(WALLS)), roof = C(pick(ROOFS)), hu = w / 2, hv = dp / 2;
+      blobs.push({ x, z, r: rad });
+      if (onBank(x, z, rad)) continue;                          // no house in the side of a ramp
       B.at(x, z);
       box(B, f, -hu, hu, -0.3, h, -hv, hv, wall);
       box(B, f, -hu - 0.4, hu + 0.4, h, h + 0.15, -hv - 0.4, hv + 0.4, roof);
@@ -537,33 +764,36 @@ for (const r of roads) {
       const win = (u0, u1, y0, y1, v, col) => B.quad(f.pt(u0, y0, v), f.pt(u1, y0, v), f.pt(u1, y1, v), f.pt(u0, y1, v), col);
       for (let y = 1.1; y + 1.2 < h; y += 3.1) for (const v of [hv + 0.06, -hv - 0.06]) for (const u of [-hu / 2, hu / 2]) win(u - 0.6, u + 0.6, y, y + 1.2, v, WINDOW);
       win(-0.5, 0.5, 0, 2.1, hv + 0.06, DOOR);
-      blobs.push({ x, z, r: rad });
       miniBuildings.push({ pts: [f.xz(-hu, -hv), f.xz(hu, -hv), f.xz(hu, hv), f.xz(-hu, hv)], c: '#b3b0a8' });
     }
   }
 }
 
 buildRoadEdges();
+buildBridges();
 
 // ---------- street details: zebra crossings, traffic lights, bus stops, street lamps and street name signs ----------
-function nearestSeg(x, z, max, test = () => true) {            // { s, d, px, pz } of the nearest road segment
+function nearestSeg(x, z, max, test = () => true, ref) {       // { s, d, px, pz, t } of the nearest road segment (ref: at about that height)
+  const cell = near(x, z), lv = ref !== undefined && cell.high, g = lv ? height(x, z) : 0;
   let best = null;
-  for (const s of near(x, z)) if (s.road && test(s)) { const q = segDist(x, z, s); if (q.d < max && (!best || q.d < best.d)) best = { s, ...q }; }
+  for (const s of cell) if (s.road && test(s)) { const q = segDist(x, z, s); if (q.d < max && (!best || q.d < best.d) && (!lv || Math.abs(segTop(s, q.t, g) - ref) < LEVEL)) best = { s, ...q }; }
   return best;
 }
 const along = s => { const l = Math.hypot(s.bx - s.ax, s.bz - s.az) || 1; return [(s.bx - s.ax) / l, (s.bz - s.az) / l]; };
 for (const c of MAP.crossings.map(W)) {                        // zebra crossings, where OpenStreetMap has them
   const q = nearestSeg(c.x, c.z, 7, s => !s.noWall && s.type !== 'motorway' && s.type !== 'service' && s.type !== 'track');
   if (!q) continue;
-  const [dx, dz] = along(q.s), y = q.s.road.st.y + 0.035, white = C('#f1f1ec');
+  const [dx, dz] = along(q.s), y = q.s.road.st.y + 0.035 + rise(q.s, q.t), white = C('#f1f1ec');
+  G.abs = !!q.s.deck;
   for (let j = -q.s.w / 2 + 0.55; j < q.s.w / 2 - 0.3; j += 1.0) {
     const x = q.px - dz * j, z = q.pz + dx * j, nx = -dz * 0.25, nz = dx * 0.25;
     G.quad([x - dx * 1.5 + nx, y, z - dz * 1.5 + nz], [x + dx * 1.5 + nx, y, z + dz * 1.5 + nz], [x + dx * 1.5 - nx, y, z + dz * 1.5 - nz], [x - dx * 1.5 - nx, y, z - dz * 1.5 - nz], white);
   }
+  G.abs = false;
 }
 const roadside = (q, x, z, out) => {                           // frame at the side of the road nearest to (x, z): u along the road, v away from it
   const [dx, dz] = along(q.s), side = (x - q.px) * -dz + (z - q.pz) * dx >= 0 ? 1 : -1, nx = -dz * side, nz = dx * side, k = q.s.w / 2 + out;
-  B.at(q.px + nx * k, q.pz + nz * k);
+  B.base = segTop(q.s, q.t, height(q.px + nx * k, q.pz + nz * k));
   return frame(q.px + nx * k, q.pz + nz * k, dx, dz, nx, nz);
 };
 for (const c of MAP.signals.map(W)) {                          // traffic lights
@@ -595,9 +825,10 @@ for (const c of MAP.stops.map(W)) {                            // bus stops: a s
       const a = r.pts[i], b = r.pts[i + 1], l = Math.hypot(b.x - a.x, b.z - a.z), dx = (b.x - a.x) / l, dz = (b.z - a.z) / l;
       for (; run < l; run += 36, flip = -flip) {
         const x = a.x + dx * run - dz * out * flip, z = a.z + dz * run + dx * out * flip;
-        if (!inWorld(x, z) || onSurface(x, z, false)) continue;                       // not in the middle of a junction
+        const y = r.segs ? segTop(r.segs[i], run / l, height(x, z)) : height(x, z);
+        if (!inWorld(x, z) || onSurface(x, z, false, y)) continue;                    // not in the middle of a junction
         const k = Math.floor(x / LG) * 8192 + Math.floor(z / LG);
-        (groups.get(k) || groups.set(k, []).get(k)).push({ x, z, a: Math.atan2(dx * flip, dz * flip) });        // the arm (local +x) points at the road
+        (groups.get(k) || groups.set(k, []).get(k)).push({ x, z, y, a: Math.atan2(dx * flip, dz * flip) });        // the arm (local +x) points at the road
       }
       run -= l;
     }
@@ -605,7 +836,7 @@ for (const c of MAP.stops.map(W)) {                            // bus stops: a s
   const m = new THREE.Matrix4(), q = new THREE.Quaternion(), up = new THREE.Vector3(0, 1, 0), one = new THREE.Vector3(1, 1, 1);
   for (const list of groups.values()) {
     const mesh = new THREE.InstancedMesh(geo, mat, list.length);
-    list.forEach((p, i) => { m.compose(new THREE.Vector3(p.x, height(p.x, p.z), p.z), q.setFromAxisAngle(up, p.a), one); mesh.setMatrixAt(i, m); });
+    list.forEach((p, i) => { m.compose(new THREE.Vector3(p.x, p.y, p.z), q.setFromAxisAngle(up, p.a), one); mesh.setMatrixAt(i, m); });
     mesh.computeBoundingSphere(); scene.add(mesh);
   }
 }
@@ -617,9 +848,10 @@ for (const c of MAP.stops.map(W)) {                            // bus stops: a s
       const p = r.pts[end], o = r.pts[end ? end - 1 : 1], l = Math.hypot(o.x - p.x, o.z - p.z) || 1, dx = (o.x - p.x) / l, dz = (o.z - p.z) / l;
       if (!near(p.x, p.z).some(s => s.road && s.road !== r && s.road.name !== r.name && segDist(p.x, p.z, s).d < 1)) continue;   // only where another street meets
       const out = r.noWall ? r.st.w / 2 + 0.3 : r.st.w / 2 + (r.st.side || 0.8) - 0.3, x = p.x + dx * 8 - dz * out, z = p.z + dz * 8 + dx * out;
-      const same = byName.get(r.name) || byName.set(r.name, []).get(r.name);
-      if (!inWorld(x, z) || onSurface(x, z, false) || same.some(q => Math.hypot(q.x - x, q.z - z) < 30)) continue;
-      same.push({ x, z }); spots.push({ x, z, dx, dz, name: r.name });
+      const same = byName.get(r.name) || byName.set(r.name, []).get(r.name), sg = r.segs && r.segs[end ? r.segs.length - 1 : 0], t8 = Math.min(1, 8 / l);
+      const y = sg ? segTop(sg, end ? 1 - t8 : t8, height(x, z)) : height(x, z);
+      if (!inWorld(x, z) || onSurface(x, z, false, y) || same.some(q => Math.hypot(q.x - x, q.z - z) < 30)) continue;
+      same.push({ x, z }); spots.push({ x, z, y, dx, dz, name: r.name });
     }
   }
   const names = [...byName.keys()].filter(n => byName.get(n).length), COLS = 6, CW = 320, CH = 40, cv = document.createElement('canvas');
@@ -634,13 +866,13 @@ for (const c of MAP.stops.map(W)) {                            // bus stops: a s
   const tex = new THREE.CanvasTexture(cv); tex.colorSpace = THREE.SRGBColorSpace; tex.anisotropy = 8;
   const pos = [], uv = [], idx = [], Wd = 0.9, Hh = 0.225, post = C('#6b7076');
   for (const s of spots) {
-    const i = names.indexOf(s.name), u0 = (i % COLS) / COLS, u1 = u0 + 1 / COLS, v1 = 1 - Math.floor(i / COLS) * CH / cv.height, v0 = v1 - CH / cv.height, y = height(s.x, s.z) + 2.55;
+    const i = names.indexOf(s.name), u0 = (i % COLS) / COLS, u1 = u0 + 1 / COLS, v1 = 1 - Math.floor(i / COLS) * CH / cv.height, v0 = v1 - CH / cv.height, y = s.y + 2.55;
     for (const face of [1, -1]) {                              // two plates back to back, each readable from its side
       const ox = -s.dz * 0.03 * face, oz = s.dx * 0.03 * face, k = pos.length / 3;
       pos.push(s.x - s.dx * Wd * face + ox, y - Hh, s.z - s.dz * Wd * face + oz, s.x + s.dx * Wd * face + ox, y - Hh, s.z + s.dz * Wd * face + oz, s.x + s.dx * Wd * face + ox, y + Hh, s.z + s.dz * Wd * face + oz, s.x - s.dx * Wd * face + ox, y + Hh, s.z - s.dz * Wd * face + oz);
       uv.push(u0, v0, u1, v0, u1, v1, u0, v1); idx.push(k, k + 1, k + 2, k, k + 2, k + 3);
     }
-    B.at(s.x, s.z); box(B, frame(s.x, s.z, 1, 0, 0, 1), -0.04, 0.04, -0.3, 2.8, -0.04, 0.04, post);
+    B.base = s.y; box(B, frame(s.x, s.z, 1, 0, 0, 1), -0.04, 0.04, -0.3, 2.8, -0.04, 0.04, post);
   }
   const g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3)); g.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2)); g.setIndex(idx);
   scene.add(new THREE.Mesh(g, new THREE.MeshBasicMaterial({ map: tex, side: THREE.DoubleSide })));
@@ -742,7 +974,10 @@ const tiago = makePerson('#3aa55a', '#1f1a17', '#3a3f4a');      // Tiago: green 
   const tex = new THREE.CanvasTexture(cv); tex.colorSpace = THREE.SRGBColorSpace;
   const name = new THREE.Sprite(new THREE.SpriteMaterial({ map: tex, fog: false })); name.scale.set(0.84, 0.28, 1); name.position.y = 2.2; tiago.group.add(name);
 }
-function placeTiago(x, z, heading, swing = 0, y = height(x, z) + GROUND_Y) { tiago.group.position.set(x, y, z); tiago.group.rotation.y = heading; tiago.pose(swing); tiago.x = x; tiago.z = z; }
+function placeTiago(x, z, heading, swing = 0, y) {
+  if (y !== undefined) tiago.gy = undefined;
+  else { if (Math.hypot(x - tiago.x, z - tiago.z) > 8) tiago.gy = undefined; tiago.gy = floorAt(x, z, tiago.gy); y = tiago.gy + GROUND_Y; }   // outdoors: on the road he is on (a bridge or under it)
+  tiago.group.position.set(x, y, z); tiago.group.rotation.y = heading; tiago.pose(swing); tiago.x = x; tiago.z = z; }
 const st = { x: 0, z: 0, y: 0, jump: 0, vy: 0, heading: 0, camHeading: 0, orbit: 0, pitch: 0.32, dist: 9, camDist: 9, phase: 0, moving: 0 };
 const camRay = new THREE.Raycaster(), camTarget = new THREE.Vector3(), camDir = new THREE.Vector3();
 const SUN = { x: -H.ax * 75 + H.az * 40, z: -H.az * 75 - H.ax * 40 };   // sun shines on the front of the home
@@ -961,7 +1196,7 @@ function beside(v) {                     // a free spot to stand next to a vehic
   const lx = Math.cos(v.heading), lz = -Math.sin(v.heading);
   let out = null;
   for (const side of [v.out, -v.out]) {
-    const cx = v.x + lx * side, cz = v.z + lz * side, p = keepOnRoad(cx, cz);
+    const cx = v.x + lx * side, cz = v.z + lz * side, p = keepOnRoad(cx, cz, PLAYER_R, true, v.gy);
     if (p && (!out || Math.hypot(p.x - v.x, p.z - v.z) > Math.hypot(out.x - v.x, out.z - v.z) + 0.2)) out = p;
     if (p && Math.hypot(p.x - cx, p.z - cz) < 0.2) break;
   }
@@ -996,7 +1231,7 @@ function driveStep(dt) {
   let F = { ...f0 }, R = { ...r0 };
   const solid = obstacles.concat(...vehicles.filter(o => o !== v).map(circlesOf));              // parked cars and the other vehicle
   pushOut(F, v.R, solid); pushOut(R, v.R, solid);
-  F = keepOnRoad(F.x, F.z, v.R); R = keepOnRoad(R.x, R.z, v.R);                                  // roadway and pavement alike: only the walls stop a vehicle
+  F = keepOnRoad(F.x, F.z, v.R, true, v.gy); R = keepOnRoad(R.x, R.z, v.R, true, v.gy);                                  // roadway and pavement alike: only the walls stop a vehicle
   if (!F || !R || !inWorld((F.x + R.x) / 2, (F.z + R.z) / 2)) { v.speed = 0; return; }          // edge of the map
   const moved = Math.abs(v.speed) * dt, corr = Math.max(Math.hypot(F.x - f0.x, F.z - f0.z), Math.hypot(R.x - r0.x, R.z - r0.z));
   if (corr > 1e-4 && moved > 1e-6) v.speed *= 1 - Math.min(1, corr / moved) * 0.55;             // a wall takes speed according to how squarely you hit it: a graze costs little
@@ -1006,7 +1241,9 @@ function driveStep(dt) {
 }
 function syncVehicle(v, dt) {            // put a vehicle on the ground, tilted with the slope (and the motorbike leaning)
   const fx = Math.sin(v.heading), fz = Math.cos(v.heading), lx = fz, lz = -fx;
-  const hf = height(v.x + fx * v.half, v.z + fz * v.half), hr = height(v.x - fx * v.half, v.z - fz * v.half), hl = height(v.x + lx * v.wide, v.z + lz * v.wide), hR = height(v.x - lx * v.wide, v.z - lz * v.wide), k = Math.min(1, dt * 10);
+  if (Math.hypot(v.x - v.lx, v.z - v.lz) > 8) v.gy = undefined;                                 // it was put somewhere else: find its floor again
+  v.lx = v.x; v.lz = v.z; v.gy = floorAt(v.x, v.z, v.gy);
+  const hf = floorAt(v.x + fx * v.half, v.z + fz * v.half, v.gy), hr = floorAt(v.x - fx * v.half, v.z - fz * v.half, v.gy), hl = floorAt(v.x + lx * v.wide, v.z + lz * v.wide, v.gy), hR = floorAt(v.x - lx * v.wide, v.z - lz * v.wide, v.gy), k = Math.min(1, dt * 10);
   v.pitch += (-Math.atan2(hf - hr, 2 * v.half) - v.pitch) * k; v.roll += (Math.atan2(hl - hR, 2 * v.wide) - v.roll) * k;
   v.group.position.set(v.x, (hf + hr) / 2 + GROUND_Y - 0.04, v.z); v.group.rotation.set(v.pitch, v.heading, v.roll + v.lean);
   for (const w of v.wheels) w.rotation.x = v.spin;
@@ -1030,10 +1267,10 @@ const graph = new Map(), gkey = p => Math.round(p.x * 10) + ',' + Math.round(p.z
   const node = p => { const k = gkey(p); let n = graph.get(k); if (!n) graph.set(k, n = { x: p.x, z: p.z, e: [] }); return n; };
   const link = (a, b) => { const l = Math.hypot(a.x - b.x, a.z - b.z); a.e.push([b, l]); b.e.push([a, l]); };
   for (const r of roads) for (let i = 0; i < r.pts.length - 1; i++) link(node(r.pts[i]), node(r.pts[i + 1]));
-  for (const r of roads) for (const p of [r.pts[0], r.pts[r.pts.length - 1]]) {     // an end that lies on another road without sharing a point: join it
-    const n = node(p);
+  for (const r of roads) for (const i of [0, r.pts.length - 1]) {     // an end that lies on another road (at the same height) without sharing a point: join it
+    const p = r.pts[i], n = node(p), g = height(p.x, p.z), y = r.Y ? r.Y[i] : g;
     if (n.e.length > 1) continue;
-    for (const s of near(p.x, p.z)) if (s.road && s.road !== r && segDist(p.x, p.z, s).d <= s.w / 2) { link(n, node({ x: s.ax, z: s.az })); link(n, node({ x: s.bx, z: s.bz })); break; }
+    for (const s of near(p.x, p.z)) { if (!s.road || s.road === r) continue; const q = segDist(p.x, p.z, s); if (q.d <= s.w / 2 && Math.abs(segTop(s, q.t, g) - y) < LEVEL) { link(n, node({ x: s.ax, z: s.az })); link(n, node({ x: s.bx, z: s.bz })); break; } }
   }
 }
 function distanceField(target) {         // for every junction: how far it is from the target by road, and which way to go
@@ -1045,7 +1282,7 @@ function distanceField(target) {         // for every junction: how far it is fr
   return field;
 }
 function routeFrom(x, z, field, target) {   // the way from (x, z) to the target, as a list of points
-  const q = nearestSeg(x, z, 30);
+  const q = nearestSeg(x, z, 30, undefined, st.gy);
   if (!q) return null;
   let best = null, bd = 1e18;
   for (const p of [{ x: q.s.ax, z: q.s.az }, { x: q.s.bx, z: q.s.bz }]) { const n = graph.get(gkey(p)), f = n && field.get(n); if (f && f.d + Math.hypot(p.x - x, p.z - z) < bd) { bd = f.d + Math.hypot(p.x - x, p.z - z); best = n; } }
@@ -1234,6 +1471,7 @@ document.getElementById('loading').remove();
 let last = performance.now(), hudT = 0;
 function step(dt) {
   let ahead = false;                                           // moving forward: the camera swings back behind
+  if (Math.hypot(st.x - st.lx, st.z - st.lz) > 8) st.gy = undefined;       // you were put somewhere else (home, Tiago's door): find your floor again
   if (driving) {
     driveStep(dt);
     st.x = ride.x; st.z = ride.z; st.heading = ride.heading; ahead = ride.speed > 1;
@@ -1248,8 +1486,8 @@ function step(dt) {
       if (indoor) {                                            // in the flat: rooms, doorways and furniture
         if (FLAT.allowed(nx, nz)) { st.x = nx; st.z = nz; } else if (FLAT.allowed(nx, st.z)) st.x = nx; else if (FLAT.allowed(st.x, nz)) st.z = nz;
       } else {
-        let p = keepOnRoad(nx, nz);                            // slide along the walls
-        if (p && pushOut(p, PLAYER_R, circlesOf(car)) + pushOut(p, PLAYER_R, circlesOf(bike)) + pushOut(p, PLAYER_R, obstacles) > 0) p = keepOnRoad(p.x, p.z);   // cars are solid
+        let p = keepOnRoad(nx, nz, PLAYER_R, true, st.gy);     // slide along the walls
+        if (p && pushOut(p, PLAYER_R, circlesOf(car)) + pushOut(p, PLAYER_R, circlesOf(bike)) + pushOut(p, PLAYER_R, obstacles) > 0) p = keepOnRoad(p.x, p.z, PLAYER_R, true, st.gy);   // cars are solid
         if (p && !inWorld(p.x, p.z)) p = null;                 // edge of the map
         if (p) { st.x = p.x; st.z = p.z; }
       }
@@ -1261,7 +1499,9 @@ function step(dt) {
     ahead = fwd > 0;
     player.pose(Math.sin(st.phase) * 0.75 * st.moving * (run && fwd > 0 ? 1.25 : 1));
   }
-  st.y = (indoor ? FLAT.y : height(st.x, st.z) + GROUND_Y) + (driving ? 0 : st.jump);
+  if (!indoor) st.gy = floorAt(st.x, st.z, driving ? ride.gy : st.gy);     // the road you are on: the ground, a ramp or a bridge
+  st.lx = st.x; st.lz = st.z;
+  st.y = (indoor ? FLAT.y : st.gy + GROUND_Y) + (driving ? 0 : st.jump);
   player.group.position.set(st.x, st.y + Math.abs(Math.cos(st.phase)) * 0.05 * st.moving, st.z);
   player.group.rotation.y = st.heading;
   for (const v of vehicles) syncVehicle(v, dt);
@@ -1311,7 +1551,7 @@ function tick(now) {
   requestAnimationFrame(tick);
 }
 requestAnimationFrame(tick);
-window.__game = { buildMs: Math.round(performance.now() - T_START), THREE, scene, camera, renderer, st, car, bike, getRide: () => ride, TOP_SPEED, H, TIAGO, segs, roads, near, keepOnRoad, height, mission, tiago, graph, startMission, drawHud, isDriving: () => driving, isIndoor: () => indoor, getTalk: () => talk, enterFlat, leaveFlat, FLAT, SOFA, follow, setDriving: v => { driving = v; }, step, goHome };   // handy for debugging in the console
+window.__game = { buildMs: Math.round(performance.now() - T_START), THREE, scene, camera, renderer, st, car, bike, getRide: () => ride, TOP_SPEED, H, TIAGO, segs, roads, near, keepOnRoad, onSurface, floorAt, bridges, height, mission, tiago, graph, startMission, drawHud, isDriving: () => driving, isIndoor: () => indoor, getTalk: () => talk, enterFlat, leaveFlat, FLAT, SOFA, follow, setDriving: v => { driving = v; }, step, goHome };   // handy for debugging in the console
 </script>
 </body>
 </html>

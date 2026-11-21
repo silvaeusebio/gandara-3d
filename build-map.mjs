@@ -31,7 +31,7 @@ function area(t, ring, levels) {
 for (const e of d.elements) {
   const t = e.tags || {}, levels = +t['building:levels'] || 0;
   if (e.type === 'way' && e.geometry) {
-    if (t.highway) { if (DRIVE.has(t.highway) && t.area !== 'yes') out.roads.push({ n: t.name || '', t: t.highway, p: e.geometry.map(P) }); continue; }
+    if (t.highway) { if (DRIVE.has(t.highway) && t.area !== 'yes') out.roads.push({ n: t.name || '', t: t.highway, p: e.geometry.map(P), ...(t.bridge && t.bridge !== 'no' ? { b: 1 } : t.tunnel === 'yes' || +t.layer < 0 ? { u: 1 } : {}) }); continue; }   // b: a bridge · u: passes under another road
     if (t.waterway) { if (['river', 'stream', 'canal'].includes(t.waterway)) out.streams.push({ w: t.waterway === 'river' ? 12 : t.waterway === 'canal' ? 5 : 2.6, p: e.geometry.map(P) }); continue; }
     const ring = closedRing(e.geometry);
     if (ring) area(t, ring, levels);
