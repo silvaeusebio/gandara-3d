@@ -11,6 +11,7 @@ Esta é uma versão beta: há coisas por acabar e pode ter erros.
 
 - Cerca de 3 × 4,2 km de mapa, com as ruas e os edifícios do OpenStreetMap e as altitudes reais.
 - Viadutos e passagens inferiores: as pontes ficam por cima, com rampas, e passa-se por baixo.
+- A estrada verdadeira da Gândara até Amor (cerca de 6 km), com a aldeia de Amor à volta da Rua da Serrada.
 - O Castelo de Leiria, no extremo sul do mapa, com as muralhas, as torres e os Paços Novos; entra-se a pé pelos caminhos.
 - A Rua dos Lavradios modelada à mão, casa a casa, a partir de imagens de satélite e de rua.
 - O prédio do Tiago, com o apartamento por dentro feito a partir de um esboço (`esboco/Casa Tiago.png`).
@@ -30,6 +31,7 @@ Esta é uma versão beta: há coisas por acabar e pode ter erros.
 | Roda do rato | aproximar / afastar |
 | Enter | entrar / sair (carro, mota, casa do Tiago) · falar com o Tiago |
 | H | voltar a casa (com o carro e a mota) |
+| M | ir para a casa de Amor (com o carro e a mota) |
 | 1 · 2 · 3 | escolher o nível (fácil, médio, difícil), quando o Tiago pergunta |
 | 0 | cancelar a missão |
 | T | ir para o prédio do Tiago (atalho de teste, para remover) |
@@ -47,6 +49,7 @@ Abre o endereço do jogo no browser do telemóvel e roda-o para ficar deitado.
 | Saltar · Correr | a pé: saltar, e correr enquanto o botão estiver carregado |
 | Acelerar · Travar · Sair | aparecem quando conduzes: acelerar, travar (e marcha-atrás) e sair do carro ou da mota |
 | Botão ⌂ | voltar a casa |
+| Botão A | ir para a casa de Amor |
 | Fácil · Médio · Difícil | aparecem ao falar com o Tiago, para escolher o nível; Cancelar pára a missão |
 | Botão T | ir para o prédio do Tiago (atalho de teste, para remover) |
 

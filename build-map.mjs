@@ -4,7 +4,7 @@
 import fs from 'fs';
 
 const LAT0 = 39.7745046, LON0 = -8.8203592;                     // map origin = the "Casa" pin
-const BBOX = [39.74270, -8.829125, 39.78129, -8.791725];        // south, west, north, east (the area that was downloaded)
+const BBOX = [39.74270, -8.86840, 39.81240, -8.791725];        // south, west, north, east (the area that was downloaded)
 const KX = 111320 * Math.cos(LAT0 * Math.PI / 180), KY = 110574;
 const P = g => [+((g.lon - LON0) * KX).toFixed(1), +((g.lat - LAT0) * KY).toFixed(1)];   // metres east, metres north
 
@@ -63,7 +63,7 @@ d.elements.forEach((e, idx) => {
   if (e.type === 'way' && e.geometry) {
     if (t.highway) {
       const p = e.geometry.map(P);
-      if (DRIVE.has(t.highway) && t.area !== 'yes') out.roads.push({ n: t.name || '', t: t.highway, p, ...(t.bridge && t.bridge !== 'no' ? { b: 1 } : t.tunnel === 'yes' || +t.layer < 0 ? { u: 1 } : {}), ...(fresh ? { f: 1 } : {}) });   // b: a bridge · u: passes under another road
+      if (DRIVE.has(t.highway) && t.area !== 'yes') out.roads.push({ n: t.name || '', t: t.highway, p, ...(t.bridge && t.bridge !== 'no' ? { b: 1 } : t.tunnel === 'yes' || +t.layer < 0 ? { u: 1 } : {}), ...(fresh ? { f: 1 } : {}), ...(t.game_quiet ? { q: 1 } : {}) });   // q: countryside road (few invented houses) · b: a bridge · u: passes under another road
       else if (['footway', 'steps', 'path'].includes(t.highway) && !t.bridge && inCastle(p)) out.roads.push({ n: '', t: 'footway', p, f: 1 });      // the paths inside the castle
       return;
     }

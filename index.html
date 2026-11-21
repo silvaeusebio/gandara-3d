@@ -32,6 +32,7 @@
   .touch canvas#c, .touch #pad, .touch .tb { touch-action: none; }
   .touch #help { display: none; }
   .touch #pad { display: block; position: fixed; left: max(18px, env(safe-area-inset-left)); bottom: max(18px, env(safe-area-inset-bottom)); width: 132px; height: 132px; border-radius: 50%; background: rgba(20, 30, 40, .32); border: 2px solid rgba(255, 255, 255, .55); }
+  #smalls { grid-column: 1 / 3; display: flex; justify-content: space-between; gap: 8px; }
   #knob { position: absolute; left: 50%; top: 50%; width: 56px; height: 56px; margin: -28px 0 0 -28px; border-radius: 50%; background: rgba(255, 255, 255, .78); pointer-events: none; }
   .touch #btns { display: grid; position: fixed; right: max(16px, env(safe-area-inset-right)); bottom: max(16px, env(safe-area-inset-bottom)); grid-template-columns: auto auto; gap: 10px; align-items: end; justify-items: end; }
   .tb { width: 60px; height: 60px; border-radius: 50%; border: 2px solid rgba(255, 255, 255, .6); background: rgba(20, 30, 40, .45); color: #fff; font: 700 22px system-ui, sans-serif; padding: 0; }
@@ -78,6 +79,7 @@
   <div><b>Roda</b> aproximar / afastar</div>
   <div><b>Enter</b> entrar / sair (carro, mota, casa do Tiago)</div>
   <div><b>H</b> voltar a casa (com o carro)</div>
+  <div><b>M</b> ir para a casa de Amor</div>
   <div><b>1 · 2 · 3</b> escolher o nível (ao falar com o Tiago)</div>
   <div><b>0</b> cancelar a missão</div>
   <div><b>T</b> ir para o prédio do Tiago (teste)</div><!-- TEMP (testes): a remover -->
@@ -88,8 +90,11 @@
 <div id="talk" class="panel" style="display:none"></div>
 <div id="pad"><div id="knob"></div></div>
 <div id="btns">
-  <button id="bHome" class="tb small" aria-label="Voltar a casa">⌂</button>
-  <button id="bTest" class="tb small" aria-label="Ir para o prédio do Tiago (teste)">T</button><!-- TEMP (testes): a remover -->
+  <div id="smalls">
+    <button id="bHome" class="tb small" aria-label="Voltar a casa">⌂</button>
+    <button id="bAmor" class="tb small" aria-label="Ir para a casa de Amor">A</button>
+    <button id="bTest" class="tb small" aria-label="Ir para o prédio do Tiago (teste)">T</button><!-- TEMP (testes): a remover -->
+  </div>
   <button id="bExit" class="tb drive">Sair</button>
   <button id="bBrake" class="tb drive">Travar</button>
   <button id="bGas" class="tb drive">Acelerar</button>
@@ -98,10 +103,10 @@
   <button id="bRun" class="tb">Correr</button>
 </div>
 
-<script src="map-data.js?v=4"></script>
-<script src="lavradios.js?v=4"></script>
-<script src="tiago.js?v=4"></script>
-<script src="castelo.js?v=4"></script>
+<script src="map-data.js?v=5"></script>
+<script src="lavradios.js?v=5"></script>
+<script src="tiago.js?v=5"></script>
+<script src="castelo.js?v=5"></script>
 <script type="module">
 import * as THREE from 'https://unpkg.com/three@0.160.0/build/three.module.js';
 
@@ -172,6 +177,17 @@ function height(x, z) {                            // height of the ground: exac
   return u + v <= 1 ? d[k] + (d[k + 1] - d[k]) * u + (d[k + TERR.cols] - d[k]) * v
     : d[k + TERR.cols + 1] + (d[k + TERR.cols] - d[k + TERR.cols + 1]) * (1 - u) + (d[k + 1] - d[k + TERR.cols + 1]) * (1 - v);
 }
+
+// Outside the first map (with the castle strip) the world is only a road to Amor and the village there: the ground is drawn, and trees are
+// planted, only within some 750 m of those roads.
+const drawn = (() => {
+  const live = new Set(), cell = v => Math.floor(v / 250), mark = (x, z) => { for (let i = -3; i <= 3; i++) for (let j = -3; j <= 3; j++) live.add((cell(x - TERR.x0) + i) * 4096 + cell(z - TERR.z0) + j); };
+  for (const m of MAP.roads) if (m.f) m.p.map(W).forEach((p, i, a) => {
+    mark(p.x, p.z);
+    if (i) for (let l = Math.hypot(p.x - a[i - 1].x, p.z - a[i - 1].z), s = 200; s < l; s += 200) mark(a[i - 1].x + (p.x - a[i - 1].x) * s / l, a[i - 1].z + (p.z - a[i - 1].z) * s / l);
+  });
+  return (x, z) => x > OB.x0 - 950 && x < OB.x1 + 950 && z > OB.z0 - 950 && z < BOUNDS.z1 + 950 || live.has(cell(x - TERR.x0) * 4096 + cell(z - TERR.z0));
+})();
 
 // Geometry is collected in 250 m squares, so that only what is near the camera gets drawn.
 // A "draped" builder lays flat things on the terrain; the other one lifts each object by its base height.
@@ -297,6 +313,7 @@ waters.old = OLD.water; forests.old = OLD.forest; industrial.old = OLD.industria
   const tint = [C('#8cc468'), C('#6fa653'), C('#7fc063'), C('#c2bcae')], mat = new THREE.MeshLambertMaterial({ vertexColors: true }), N = CHUNK / STEP, shadeRnd = mulberry32(20261121);
   const hAt = (c, r) => data[clamp(r, 0, rows - 1) * cols + clamp(c, 0, cols - 1)];
   for (let R0 = 0; R0 < rows - 1; R0 += N) for (let C0 = 0; C0 < cols - 1; C0 += N) {
+    if (!drawn(x0 + (C0 + N / 2) * STEP, z0 + (R0 + N / 2) * STEP)) continue;
     const nc = Math.min(N, cols - 1 - C0), nr = Math.min(N, rows - 1 - R0), pos = [], col = [], nor = [], idx = [];
     for (let r = 0; r <= nr; r++) for (let c = 0; c <= nc; c++) {
       const gc = C0 + c, gr = R0 + r, t = tint[kind[gr * cols + gc]], shade = 0.95 + shadeRnd() * 0.1;
@@ -312,7 +329,8 @@ waters.old = OLD.water; forests.old = OLD.forest; industrial.old = OLD.industria
   }
   // the ground used to take its shades from the main generator: move that one on by as many numbers as the old map took
   const count = n => { let s = 0; for (let k = 0; k < n - 1; k += N) s += Math.min(N, n - 1 - k) + 1; return s; };
-  for (let i = count(Math.ceil((OB.x1 + 800 - x0) / STEP) + 1) * count(Math.ceil((OB.z1 + 800 - z0) / STEP) + 1); i > 0; i--) rnd();
+  const ox0 = Math.floor((OB.x0 - 800) / STEP) * STEP, oz0 = Math.floor((OB.z0 - 800) / STEP) * STEP;
+  for (let i = count(Math.ceil((OB.x1 + 800 - ox0) / STEP) + 1) * count(Math.ceil((OB.z1 + 800 - oz0) / STEP) + 1); i > 0; i--) rnd();
 }
 pitches.forEach(p => flatPoly(G, p, 0.03, C('#57a855')));
 waters.forEach(p => flatPoly(G, p, 0.05, C('#58a6d8')));
@@ -341,7 +359,7 @@ const NET = [], bridges = [];
   const dist = (a, b) => Math.hypot(a.x - b.x, a.z - b.z), asSeg = (a, b) => ({ ax: a.x, az: a.z, bx: b.x, bz: b.z });
   for (const m of MAP.roads) {
     const pts = m.p.map(W).filter((p, i, a) => !i || Math.hypot(p.x - a[i - 1].x, p.z - a[i - 1].z) > 0.05);
-    if (pts.length > 1) NET.push({ n: m.n, t: m.t, b: !!m.b, u: !!m.u, f: !!m.f, pts, raw: pts, st: ROAD[m.t] || ROAD.residential, cuts: [] });
+    if (pts.length > 1) NET.push({ n: m.n, t: m.t, b: !!m.b, u: !!m.u, f: !!m.f, q: !!m.q, pts, raw: pts, st: ROAD[m.t] || ROAD.residential, cuts: [] });
   }
   // 1. where a bridge or an underpass crosses another road without meeting it
   const CG = 80, cg = new Map(), cross = [];
@@ -483,7 +501,7 @@ function addSeg(s) {
 const near = (x, z) => segGrid.get(Math.floor(x / GRID) * 8192 + Math.floor(z / GRID)) || NONE;   // all segments within SEG_REACH of the point (and more)
 function addRoad(name, type, pts, st, net) {                   // net: what was worked out above for a road of the map
   const r = { name, type, st: st || ROAD[type] || ROAD.residential, pts, segs: [] };
-  if (net) { r.raw = net.raw; r.fresh = net.f; if (net.high) { r.lift = net.lift; r.deck = net.deck; r.Y = net.Y; r.ends = net.ends; } }
+  if (net) { r.raw = net.raw; r.fresh = net.f; r.quiet = net.q; if (net.high) { r.lift = net.lift; r.deck = net.deck; r.Y = net.Y; r.ends = net.ends; } }
   roads.push(r);
   for (let i = 0; i < pts.length - 1; i++) {
     const s = { ax: pts[i].x, az: pts[i].z, bx: pts[i + 1].x, bz: pts[i + 1].z, w: r.st.w, side: r.st.side || 0, name, type, road: r };
@@ -768,7 +786,7 @@ for (const r of roads) {
   for (let i = 0; i < line.length - 1; i++) {
     const a = line[i], b = line[i + 1], len = Math.hypot(b.x - a.x, b.z - a.z), dx = (b.x - a.x) / len, dz = (b.z - a.z) / len;
     for (let s = 6 + rand() * 8; s < len; s += 15 + rand() * 9) for (const side of [1, -1]) {
-      if (rand() > 0.78) continue;
+      if (rand() > 0.78 || r.quiet && rand() > 0.3) continue;      // (quiet: a road through the countryside)
       const w = 8 + rand() * 4, dp = 7 + rand() * 3, set = r.st.w / 2 + (r.st.side || 0) + 4 + rand() * 3.5 + dp / 2;
       const nx = -dz * side, nz = dx * side, x = a.x + dx * s + nx * set, z = a.z + dz * s + nz * set, rad = Math.hypot(w, dp) / 2;
       const free = () => inWorld(x, z, 15) && !handMade(x, z) && osmCount(x, z) < 4 && roadClear(x, z, rad * 0.8) && blobFree(x, z, rad, 1.5) && !inAny(waters, x, z) && !inAny(forests, x, z) && !inAny(industrial, x, z) && !inAny(pitches, x, z);
@@ -915,7 +933,7 @@ const camMeshes = buildMeshes.concat(shellMeshes);          // what the camera m
 // ---------- trees (drawn in 500 m groups) ----------
 {
   const TG = 500, groups = new Map(), late = new Map();        // late: the trees of the part of the map that was added later
-  const free = (x, z) => inWorld(x, z, -150) && !handMade(x, z) && roadClear(x, z, 1.6) && blobFree(x, z, 1.2, 0.5) && !inAny(waters, x, z) && !inAny(pools, x, z) && !inAny(pitches, x, z) && (oldOnly || !CASTLE.inZone(x, z));
+  const free = (x, z) => inWorld(x, z, -150) && !handMade(x, z) && roadClear(x, z, 1.6) && blobFree(x, z, 1.2, 0.5) && !inAny(waters, x, z) && !inAny(pools, x, z) && !inAny(pitches, x, z) && (oldOnly || !CASTLE.inZone(x, z) && drawn(x, z));
   const tryTree = (x, z, pine) => {
     if (!free(x, z)) return;
     const k = Math.floor(x / TG) * 8192 + Math.floor(z / TG), to = oldOnly ? groups : late, tree = { x, z, pine, s: 0.8 + rand() * 0.9 };
@@ -931,8 +949,11 @@ const camMeshes = buildMeshes.concat(shellMeshes);          // what the camera m
   const total = (OB.x1 - OB.x0 + 300) * (OB.z1 - OB.z0 + 300) / 1e6 * 600;       // about 600 trees per square kilometre
   for (let i = 0; i < total; i++) tryTree(OB.x0 - 150 + rand() * (OB.x1 - OB.x0 + 300), OB.z0 - 150 + rand() * (OB.z1 - OB.z0 + 300), rand() < 0.35);
   era(true);
-  const more = (BOUNDS.x1 - BOUNDS.x0 + 300) * (BOUNDS.z1 - OB.z1) / 1e6 * 600;  // and the same in the strip that was added to the south
-  for (let i = 0; i < more; i++) tryTree(BOUNDS.x0 - 150 + rand() * (BOUNDS.x1 - BOUNDS.x0 + 300), OB.z1 + 150 + rand() * (BOUNDS.z1 - OB.z1), rand() < 0.35);
+  const more = (BOUNDS.x1 - BOUNDS.x0 + 300) * (BOUNDS.z1 - BOUNDS.z0 + 300) / 1e6 * 350;        // and a little fewer in what was added later (where the ground is drawn)
+  for (let i = 0; i < more; i++) {
+    const x = BOUNDS.x0 - 150 + rand() * (BOUNDS.x1 - BOUNDS.x0 + 300), z = BOUNDS.z0 - 150 + rand() * (BOUNDS.z1 - BOUNDS.z0 + 300), pine = rand() < 0.35;
+    if (!(x > OB.x0 - 150 && x < OB.x1 + 150 && z > OB.z0 - 150 && z < OB.z1 + 150)) tryTree(x, z, pine);
+  }
   era();
   const mat = new THREE.MeshLambertMaterial({ flatShading: true });
   const trunkG = new THREE.CylinderGeometry(0.16, 0.26, 2.6, 5).translate(0, 0.7, 0), pineG = new THREE.ConeGeometry(1.5, 4.4, 6).translate(0, 3.7, 0), roundG = new THREE.IcosahedronGeometry(1.7, 0).translate(0, 3.1, 0);
@@ -986,6 +1007,15 @@ function addMarker(text, colour, x, z, y) {
 addMarker('Casa', '#ff8a1f', H.cx, H.cz, 11);
 addMarker('Tiago', '#2f7fe0', TIAGO.cx, TIAGO.cz, TIAGO.top + 5);
 addMarker('Castelo', '#9a6a3a', CASTLE.x, CASTLE.z, 26);
+// the other house: Rua da Serrada 11, Amor. For now only its place is known: you arrive on the street in front of it
+const AMOR = W([-3280.3, 3260.4]);
+{
+  let best = null;
+  for (const s of segs) if (s.road && s.name === 'Rua da Serrada') { const q = segDist(AMOR.x, AMOR.z, s); if (!best || q.d < best.d) best = { ...q, s }; }
+  const l = Math.hypot(best.s.bx - best.s.ax, best.s.bz - best.s.az) || 1;
+  Object.assign(AMOR, { rx: best.px, rz: best.pz, dx: (best.s.bx - best.s.ax) / l, dz: (best.s.bz - best.s.az) / l });       // the point of the street nearest to the house, and the direction of the street
+}
+addMarker('Amor', '#d6457a', AMOR.x, AMOR.z, 13);
 
 // ---------- people: you and Tiago ----------
 function makePerson(shirt, hair, trousers) {
@@ -1292,6 +1322,12 @@ function goTiago() {                     // TEMP (testes): car in the blue bay a
   Object.assign(car, { x: TIAGO.bay.x, z: TIAGO.bay.z, heading: 0, speed: 0, steer: 0 }); Object.assign(bike, { x: TIAGO.bay.x + 2.6, z: TIAGO.bay.z, heading: 0, speed: 0, steer: 0, lean: 0 });
   st.x = TIAGO.door.x; st.z = TIAGO.door.z - 1.4; st.jump = 0; st.vy = 0; st.heading = st.camHeading = 0; st.orbit = 0;      // you: in front of the ring at the door
 }
+function goAmor() {                      // you on the street in front of the house in Amor, the car and the motorbike parked beside you
+  leaveFlat(); driving = false;
+  const heading = Math.atan2(AMOR.dx, AMOR.dz), spot = k => keepOnRoad(AMOR.rx + AMOR.dx * k, AMOR.rz + AMOR.dz * k, 1) || { x: AMOR.rx, z: AMOR.rz }, c = spot(5), b = spot(9);
+  Object.assign(car, { x: c.x, z: c.z, heading, speed: 0, steer: 0 }); Object.assign(bike, { x: b.x, z: b.z, heading, speed: 0, steer: 0, lean: 0 });
+  st.x = AMOR.rx; st.z = AMOR.rz; st.jump = 0; st.vy = 0; st.heading = st.camHeading = Math.atan2(AMOR.x - AMOR.rx, AMOR.z - AMOR.rz); st.orbit = 0;
+}
 function goHome() {                      // you back in front of the gate, the car and the motorbike back in the garage
   leaveFlat(); driving = false; parkVehicles();
   st.x = H.spawn.x; st.z = H.spawn.z; st.jump = 0; st.vy = 0; st.heading = st.camHeading = Math.atan2(H.ax, H.az); st.orbit = 0;
@@ -1378,6 +1414,7 @@ addEventListener('keydown', e => {
   if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Space'].includes(e.code)) e.preventDefault();
   if (e.repeat) return;
   if (e.code === 'KeyH') { cancelMission(); goHome(); }
+  if (e.code === 'KeyM') { cancelMission(); goAmor(); }
   if (e.code === 'KeyT') goTiago();                            // TEMP (testes): atalho para o prédio do Tiago, a remover
   if (e.code === 'Enter' || e.code === 'NumpadEnter') pressEnter();     // Enter: get in / out of the car, go up to Tiago's flat and come back down
   const digit = /^(Digit|Numpad)([0-3])$/.exec(e.code);
@@ -1447,7 +1484,7 @@ function drawHud() {
   const hard = active() && mission.level === 2, help = active() && mission.level < 2;      // hard level: no help at all
   let name = null, bd = 16;
   for (const s of near(st.x, st.z)) if (s.name) { const d = segDist(st.x, st.z, s).d; if (d < bd) { bd = d; name = s.name; } }
-  streetEl.textContent = indoor ? 'Casa do Tiago' : name || (Math.hypot(st.x - TIAGO.cx, st.z - TIAGO.cz) < 60 ? 'Prédio do Tiago' : CASTLE.inZone(st.x, st.z) ? 'Castelo de Leiria' : Math.hypot(st.x, st.z) < 700 ? 'Gândara' : 'Leiria');
+  streetEl.textContent = indoor ? 'Casa do Tiago' : name || (Math.hypot(st.x - TIAGO.cx, st.z - TIAGO.cz) < 60 ? 'Prédio do Tiago' : CASTLE.inZone(st.x, st.z) ? 'Castelo de Leiria' : Math.hypot(st.x, st.z) < 700 ? 'Gândara' : Math.hypot(st.x - AMOR.x, st.z - AMOR.z) < 700 ? 'Amor' : 'Leiria');
   const hd = Math.hypot(H.cx - st.x, H.cz - st.z);
   homeEl.textContent = hd < 25 ? 'Casa — estás em casa' : 'Casa: ' + metres(hd);
   homeEl.style.display = mini.style.display = hard ? 'none' : '';
@@ -1490,7 +1527,7 @@ if (TOUCH) {
   pad.addEventListener('pointermove', e => { if (e.pointerId === padId) padMove(e); });
   for (const ev of ['pointerup', 'pointercancel']) pad.addEventListener(ev, e => { if (e.pointerId === padId) { padId = null; stick(0, 0); } });
   const tap = (id, fn) => document.getElementById(id).addEventListener('pointerdown', e => { e.preventDefault(); fn(); });
-  tap('bOk', pressEnter); tap('bExit', pressEnter); tap('bHome', () => { cancelMission(); goHome(); }); tap('bTest', goTiago);
+  tap('bOk', pressEnter); tap('bExit', pressEnter); tap('bHome', () => { cancelMission(); goHome(); }); tap('bAmor', () => { cancelMission(); goAmor(); }); tap('bTest', goTiago);
   for (const [id, what] of [['bJump', 'jump'], ['bRun', 'run'], ['bGas', 'gas'], ['bBrake', 'brake']]) {       // buttons that work while they are held down
     const b = document.getElementById(id);
     b.addEventListener('pointerdown', e => { e.preventDefault(); held[what] = true; hold(b, e.pointerId); touchKeys(); });
@@ -1589,7 +1626,7 @@ function tick(now) {
   requestAnimationFrame(tick);
 }
 requestAnimationFrame(tick);
-window.__game = { buildMs: Math.round(performance.now() - T_START), THREE, scene, camera, renderer, st, car, bike, getRide: () => ride, TOP_SPEED, H, TIAGO, segs, roads, near, keepOnRoad, onSurface, floorAt, bridges, CASTLE, height, mission, tiago, graph, startMission, drawHud, isDriving: () => driving, isIndoor: () => indoor, getTalk: () => talk, enterFlat, leaveFlat, FLAT, SOFA, follow, setDriving: v => { driving = v; }, step, goHome };   // handy for debugging in the console
+window.__game = { buildMs: Math.round(performance.now() - T_START), THREE, scene, camera, renderer, st, car, bike, getRide: () => ride, TOP_SPEED, H, TIAGO, segs, roads, near, keepOnRoad, onSurface, floorAt, bridges, CASTLE, AMOR, drawn, height, mission, tiago, graph, startMission, drawHud, isDriving: () => driving, isIndoor: () => indoor, getTalk: () => talk, enterFlat, leaveFlat, FLAT, SOFA, follow, setDriving: v => { driving = v; }, step, goHome };   // handy for debugging in the console
 </script>
 </body>
 </html>
