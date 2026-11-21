@@ -38,11 +38,11 @@ Abre o endereço do jogo no browser do telemóvel e roda-o para ficar deitado.
 
 | No ecrã | O que faz |
 |---|---|
-| Manípulo à esquerda | a pé: andar e virar (empurrado até ao fim, corre) · a conduzir: só virar |
+| Manípulo à esquerda | a pé: andar e virar · a conduzir: só virar |
 | Arrastar no ecrã | olhar à volta |
 | Afastar ou juntar dois dedos | aproximar / afastar |
 | Botão ● | entrar / sair (carro, mota, casa do Tiago) · falar com o Tiago |
-| Botão ▲ | saltar |
+| Saltar · Correr | a pé: saltar, e correr enquanto o botão estiver carregado |
 | Acelerar · Travar · Sair | aparecem quando conduzes: acelerar, travar (e marcha-atrás) e sair do carro ou da mota |
 | Botão ⌂ | voltar a casa |
 | Fácil · Médio · Difícil | aparecem ao falar com o Tiago, para escolher o nível; Cancelar pára a missão |
