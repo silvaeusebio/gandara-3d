@@ -146,9 +146,16 @@ window.buildTiago = function (ctx) {
   Q(3.75, 3.95, 0.7, 3.0, 0.42, 0.85, '#515c69'); Q(2.25, 3.1, 2.8, 3.0, 0.42, 0.85, '#515c69');
   for (let d = 0.75; d < 2.7; d += 0.68) Q(3.15, 3.7, d, d + 0.62, 0.42, 0.52, '#74808f');
   Q(2.3, 3.1, 2.42, 2.75, 0.42, 0.52, '#74808f');
-  // dining table (mesa)
-  thing(1.0, 2.6, 4.0, 4.9, 0.7, 0.76, '#a8794a');
-  for (const [x, d] of [[1.07, 4.07], [2.45, 4.07], [1.07, 4.75], [2.45, 4.75]]) Q(x, x + 0.08, d, d + 0.08, 0, 0.7, '#8a6238');
+  // dining table (mesa): against the bedroom wall, just past the sofa, with three chairs
+  thing(3.05, 3.95, 3.3, 4.9, 0.7, 0.76, '#a8794a');
+  for (const [x, d] of [[3.12, 3.37], [3.8, 3.37], [3.12, 4.75], [3.8, 4.75]]) Q(x, x + 0.08, d, d + 0.08, 0, 0.7, '#8a6238');
+  const chair = (x0, d0, bx0, bx1, bd0, bd1) => {            // a chair: 0.44 square seat, and its back on the side given
+    thing(x0, x0 + 0.44, d0, d0 + 0.44, 0.44, 0.49, '#8a6238');
+    for (const [x, d] of [[x0 + 0.02, d0 + 0.02], [x0 + 0.37, d0 + 0.02], [x0 + 0.02, d0 + 0.37], [x0 + 0.37, d0 + 0.37]]) Q(x, x + 0.05, d, d + 0.05, 0, 0.44, '#6b4f2e');
+    Q(bx0, bx1, bd0, bd1, 0.49, 0.95, '#8a6238');
+  };
+  for (const d0 of [3.48, 4.28]) chair(2.55, d0, 2.55, 2.6, d0, d0 + 0.44);                   // two along the long side, facing the wall
+  chair(3.28, 5.0, 3.28, 3.72, 5.39, 5.44);                                                  // one at the end, on the kitchen side
   // kitchen (cozinha): L of counters, hob, sink, tall fridge
   thing(0, 0.62, 5.3, 7.9, 0, 0.9, '#ecebe6'); thing(0.62, 2.9, 7.28, 7.9, 0, 0.9, '#ecebe6');
   Q(0, 0.65, 5.3, 7.9, 0.9, 0.94, '#3a3d42'); Q(0.62, 2.9, 7.25, 7.9, 0.9, 0.94, '#3a3d42');
