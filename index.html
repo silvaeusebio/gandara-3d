@@ -1012,11 +1012,13 @@ addMarker('Castelo', '#9a6a3a', CASTLE.x, CASTLE.z, 26);
 addMarker('Amor', '#d6457a', AMOR.x, AMOR.z, 13);
 
 // ---------- people: you and Tiago ----------
+const PERSON_H = 1.5, HIP = 0.78 * PERSON_H / 1.87;   // height of the people, and of their hips
 function makePerson(shirt, hair, trousers) {
-  const group = new THREE.Group(), limbs = {}, mat = c => new THREE.MeshLambertMaterial({ color: c, flatShading: true });
+  const group = new THREE.Group(), body = new THREE.Group(), limbs = {}, mat = c => new THREE.MeshLambertMaterial({ color: c, flatShading: true });
+  body.scale.setScalar(PERSON_H / 1.87); group.add(body);                     // modelled 1.87 m tall (top of the hair), shown PERSON_H tall
   const part = (w, h, d, c, x, y, z, pivotTop) => {
     const geo = new THREE.BoxGeometry(w, h, d); if (pivotTop) geo.translate(0, -h / 2, 0);
-    const me = new THREE.Mesh(geo, mat(c)); me.position.set(x, y, z); me.castShadow = true; group.add(me); return me;
+    const me = new THREE.Mesh(geo, mat(c)); me.position.set(x, y, z); me.castShadow = true; body.add(me); return me;
   };
   part(0.52, 0.66, 0.3, shirt, 0, 1.1, 0); part(0.34, 0.34, 0.34, '#f0c39a', 0, 1.62, 0); part(0.36, 0.1, 0.36, hair, 0, 1.82, 0);
   limbs.legL = part(0.2, 0.78, 0.22, trousers, 0.14, 0.78, 0, true); limbs.legR = part(0.2, 0.78, 0.22, trousers, -0.14, 0.78, 0, true);
@@ -1034,7 +1036,7 @@ const tiago = makePerson('#3aa55a', '#1f1a17', '#3a3f4a');      // Tiago: green 
   const cx = cv.getContext('2d'); cx.fillStyle = '#2f9a4e'; cx.beginPath(); cx.roundRect(4, 4, 184, 56, 18); cx.fill();
   cx.fillStyle = '#fff'; cx.font = 'bold 38px system-ui, sans-serif'; cx.textAlign = 'center'; cx.textBaseline = 'middle'; cx.fillText('Tiago', 96, 34);
   const tex = new THREE.CanvasTexture(cv); tex.colorSpace = THREE.SRGBColorSpace;
-  const name = new THREE.Sprite(new THREE.SpriteMaterial({ map: tex, fog: false })); name.scale.set(0.84, 0.28, 1); name.position.y = 2.2; tiago.group.add(name);
+  const name = new THREE.Sprite(new THREE.SpriteMaterial({ map: tex, fog: false })); name.scale.set(0.84, 0.28, 1); name.position.y = PERSON_H + 0.35; tiago.group.add(name);
 }
 function placeTiago(x, z, heading, swing = 0, y) {
   if (y !== undefined) tiago.gy = undefined;
@@ -1065,7 +1067,7 @@ function petStep(t) {                    // it walks very slowly up and down, be
 }
 // Tiago is at home, on the sofa, watching television. During the mission you call him (Enter next to him) and he follows you.
 const SOFA = FLAT.sofa, follow = { on: false, trail: [] };
-function tiagoOnSofa() { follow.on = false; tiago.home = true; tiago.group.visible = true; placeTiago(SOFA.x, SOFA.z, FLAT.heading, 0, FLAT.y - 0.14); tiago.sit(); }
+function tiagoOnSofa() { follow.on = false; tiago.home = true; tiago.group.visible = true; placeTiago(SOFA.x, SOFA.z, FLAT.heading, 0, FLAT.y + 0.64 - HIP); tiago.sit(); }   // hips on the seat cushion
 function tiagoFollows(x, z) {            // he stands at (x, z) and from now on walks where you walked, a little behind
   follow.on = true; follow.trail = []; tiago.home = false; tiago.group.visible = true; placeTiago(x, z, st.heading, 0, indoor ? FLAT.y : undefined);
 }
@@ -1235,7 +1237,7 @@ let driving = false, ride = car;         // driving: you are on a vehicle; ride:
   add(new THREE.BoxGeometry(0.18, 0.04, 0.42), paint, 0, 0.36, 0, front);        // front mudguard
   bike.rider = makePerson('#2f7fd6', '#4a2f1c', '#2b3445'); bike.pillion = makePerson('#3aa55a', '#1f1a17', '#3a3f4a');        // you, and Tiago behind you
   bike.group.add(bike.rider.group, bike.pillion.group);
-  bike.rider.group.position.set(0, 0.08, -0.3); bike.rider.set(-1.15, -1.2); bike.pillion.group.position.set(0, 0.12, -0.78); bike.pillion.set(-1.05, -0.95);
+  bike.rider.group.position.set(0, 0.86 - HIP, -0.3); bike.rider.set(-1.15, -1.2); bike.pillion.group.position.set(0, 0.9 - HIP, -0.78); bike.pillion.set(-1.05, -0.95);
   bike.rider.group.visible = bike.pillion.group.visible = false;
   bike.group.rotation.order = 'YXZ';
   scene.add(bike.group);
@@ -1583,7 +1585,7 @@ function step(dt) {
   st.camHeading += dh * Math.min(1, dt * (driving ? 3.5 : 5));
   const fast = driving ? Math.min(1, Math.abs(ride.speed) / TOP_SPEED) : 0;                      // pull back a little at speed, and see a little wider
   const fov = indoor ? 68 : 60 + fast * 12; if (Math.abs(camera.fov - fov) > 0.05) { camera.fov += (fov - camera.fov) * Math.min(1, dt * 3); camera.updateProjectionMatrix(); }
-  const yaw = st.camHeading + st.orbit, cp = Math.cos(st.pitch), ty = st.y + (driving ? 1.8 : indoor ? 1.62 : 1.5), dist = st.dist * (driving ? (ride === bike ? 1 : 1.3) + fast * 0.5 : 1);
+  const yaw = st.camHeading + st.orbit, cp = Math.cos(st.pitch), ty = st.y + (driving ? 1.8 : indoor ? PERSON_H - 0.17 : 1.5), dist = st.dist * (driving ? (ride === bike ? 1 : 1.3) + fast * 0.5 : 1);
   // keep the camera out of buildings: pull it in when a wall or roof is between it and the player
   camTarget.set(st.x, ty, st.z); camDir.set(-Math.sin(yaw) * cp, Math.sin(st.pitch), -Math.cos(yaw) * cp);
   camRay.set(camTarget, camDir); camRay.far = dist + 0.6;
