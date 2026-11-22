@@ -132,8 +132,8 @@ window.buildTiago = function (ctx) {
   wall(5.2, 5.325, 5.5, 6.9); wall(5.2, 5.325, 7.7, 8.35); over(5.2, 5.325, 6.9, 7.7);            // WC door, from the corridor
   wall(5.2, XE, 8.225, 8.35);                                                                      // WC | circulação
   wall(0, 3.325, 7.9, 8.025);                                                                      // kitchen | arrumos
-  wall(3.2, 3.325, 8.025, 8.45); wall(3.2, 3.325, 9.25, DB); over(3.2, 3.325, 8.45, 9.25);        // study door: a sliding door, open
-  Q(3.325, 3.37, 9.3, 10.1, 0, 2.1, '#d8d2c4', true); Q(3.325, 3.37, 8.45, 10.15, 2.1, 2.16, '#9aa0a6');       // its leaf, pushed back along the circulação wall, and the rail
+  wall(3.2, 3.325, 8.025, 8.45); wall(3.2, 3.325, 10.05, DB); over(3.2, 3.325, 8.45, 10.05);       // study door: a sliding door, 1.60 wide, open
+  Q(3.15, 3.195, 10.1, 11.7, 0, 2.1, '#d8d2c4', true); Q(3.15, 3.195, 8.45, 11.75, 2.1, 2.16, '#9aa0a6');      // its leaf, pushed back inside the study, and the rail
   Q(XE + 0.04, XE + 0.12, 9.2, 10.1, 0, 2.1, '#7a4a2c'); Q(XE, XE + 0.04, 9.95, 10.03, 0.98, 1.06, '#c9ccd1');   // the front door, with its handle
   // the varanda: glass rail with a handrail, walls to the neighbours
   Q(0, 7.075, -VD - 0.06, -VD, 1.0, 1.06, '#dfe6ea', true); Q(0, 7.075, -VD - 0.06, -VD, 0, 0.08, '#3a3d42');
