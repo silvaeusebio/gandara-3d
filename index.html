@@ -103,7 +103,7 @@
   <button id="bRun" class="tb">Correr</button>
 </div>
 
-<script src="map-data.js?v=5"></script>
+<script src="map-data.js?v=6"></script>
 <script src="lavradios.js?v=5"></script>
 <script src="tiago.js?v=10"></script>
 <script src="castelo.js?v=5"></script>
@@ -731,6 +731,64 @@ const WALLS = ['#f4f1ea', '#fbfaf6', '#efe6d2', '#f3e2bd', '#ecd9cf', '#e6ecef',
 const ROOFS = ['#c8643c', '#b9573a', '#d07a4c', '#a94f38', '#c26a47'];
 const WINDOW = C('#2e4458'), DOOR = C('#7a4a2c');
 
+// churches and chapels (k: 'c' in the map): a white nave with a tiled gable roof, the front (with the door and a cross) towards the nearest road,
+// and a bell tower at one corner of the front, or a small bell gable on top of it for little chapels. Built in the box around the footprint.
+const clampN = (v, a, b) => Math.max(a, Math.min(b, v));
+function church(pts, cx, cz, foot) {
+  let ax = 1, az = 0, best = 0;
+  for (let i = 0; i < pts.length; i++) { const p = pts[i], q = pts[(i + 1) % pts.length], l = Math.hypot(q.x - p.x, q.z - p.z); if (l > best) { best = l; ax = (q.x - p.x) / l; az = (q.z - p.z) / l; } }
+  const ext = (ux, uz) => { let u0 = 1e9, u1 = -1e9, v0 = 1e9, v1 = -1e9;
+    for (const p of pts) { const u = (p.x - cx) * ux + (p.z - cz) * uz, v = -(p.x - cx) * uz + (p.z - cz) * ux; u0 = Math.min(u0, u); u1 = Math.max(u1, u); v0 = Math.min(v0, v); v1 = Math.max(v1, v); }
+    return { ux, uz, u0, u1, v0, v1 }; };
+  let e = ext(ax, az);
+  if (e.u1 - e.u0 < e.v1 - e.v0) e = ext(-az, ax);                       // u runs along the nave
+  const roadAt = (u, v) => { const q = nearestSeg(cx + u * e.ux - v * e.uz, cz + u * e.uz + v * e.ux, 120); return q ? q.d : 1e9; };
+  if (roadAt(e.u1, (e.v0 + e.v1) / 2) < roadAt(e.u0, (e.v0 + e.v1) / 2)) e = ext(-e.ux, -e.uz);   // the front (u0) faces the road
+  const { u0, u1, v0, v1 } = e, f = frame(cx, cz, e.ux, e.uz, -e.uz, e.ux), L = u1 - u0, Wd = v1 - v0, vm = (v0 + v1) / 2;
+  const WHITE = C('#f5f2ea'), STONE = C('#cbbd9c'), TILE = C('#b9573a'), DARK = C('#2f2a26'), WOOD = C('#6b3f22'), GLASS = C('#3a4f66');
+  const hn = clampN(Wd * 0.7, 4.5, 12), ry = hn + Wd * 0.42;
+  const cross = (u, y, v, s) => { box(B, f, u - 0.08 * s, u + 0.08 * s, y, y + 1.6 * s, v - 0.08 * s, v + 0.08 * s, STONE); box(B, f, u - 0.08 * s, u + 0.08 * s, y + 0.95 * s, y + 1.15 * s, v - 0.5 * s, v + 0.5 * s, STONE); };
+  // the nave: walls, stone plinth, corner pilasters and cornice, gable roof
+  box(B, f, u0, u1, foot, hn, v0, v1, WHITE);
+  box(B, f, u0 - 0.06, u1 + 0.06, foot, 0.5, v0 - 0.06, v1 + 0.06, STONE);
+  for (const [a, b] of [[u0 - 0.06, u0 + 0.45], [u1 - 0.45, u1 + 0.06]]) for (const [c, d] of [[v0 - 0.06, v0 + 0.45], [v1 - 0.45, v1 + 0.06]]) box(B, f, a, b, 0.5, hn, c, d, STONE);
+  box(B, f, u0 - 0.15, u1 + 0.15, hn - 0.35, hn, v0 - 0.15, v1 + 0.15, STONE);
+  B.quad(f.pt(u0 - 0.25, hn, v0 - 0.4), f.pt(u1 + 0.25, hn, v0 - 0.4), f.pt(u1 + 0.25, ry, vm), f.pt(u0 - 0.25, ry, vm), TILE);
+  B.quad(f.pt(u0 - 0.25, hn, v1 + 0.4), f.pt(u1 + 0.25, hn, v1 + 0.4), f.pt(u1 + 0.25, ry, vm), f.pt(u0 - 0.25, ry, vm), TILE);
+  for (const u of [u0, u1]) B.tri(f.pt(u, hn, v0), f.pt(u, hn, v1), f.pt(u, ry - 0.05, vm), WHITE);
+  // bell tower at the front corner, or a bell gable on the front of a small chapel
+  const tower = Wd >= 5.5 && L >= 9, s = clampN(Wd * 0.38, 2.6, 6);
+  let top = ry + 1.6;
+  if (tower) {
+    const t0 = u0 - 0.35, t1 = t0 + s, w0 = v0 - 0.35, w1 = w0 + s, th = ry + clampN(s * 1.5, 3.5, 10), tu = (t0 + t1) / 2, tv = (w0 + w1) / 2, ow = Math.min(1.1, s * 0.32);
+    box(B, f, t0, t1, foot, th, w0, w1, WHITE);
+    for (const [a, b] of [[t0 - 0.06, t0 + 0.4], [t1 - 0.4, t1 + 0.06]]) for (const [c, d] of [[w0 - 0.06, w0 + 0.4], [w1 - 0.4, w1 + 0.06]]) box(B, f, a, b, 0, th, c, d, STONE);
+    box(B, f, t0 - 0.1, t1 + 0.1, hn - 0.35, hn, w0 - 0.1, w1 + 0.1, STONE);
+    box(B, f, t0 - 0.06, t1 + 0.06, th - 3.2, th - 0.6, tu - ow, tu + ow, DARK); box(B, f, tu - ow, tu + ow, th - 3.2, th - 0.6, w0 - 0.06, w1 + 0.06, DARK);   // the bell openings
+    box(B, f, t0 - 0.2, t1 + 0.2, th - 0.6, th, w0 - 0.2, w1 + 0.2, STONE);
+    hipRoof(B, f, t0 - 0.1, t1 + 0.1, w0 - 0.1, w1 + 0.1, th, s * 0.9, TILE);
+    cross(tu, th + s * 0.9 - 0.1, tv, 0.9); top = th + s * 0.9 + 1.5;
+  } else {
+    const bw = clampN(Wd * 0.18, 0.6, 1.2);
+    box(B, f, u0 - 0.05, u0 + 0.35, ry - 0.4, ry + 1.6, vm - bw, vm + bw, WHITE); box(B, f, u0 - 0.1, u0 + 0.4, ry + 0.1, ry + 1.1, vm - bw * 0.55, vm + bw * 0.55, DARK);
+    cross(u0 + 0.15, ry + 1.6, vm, 0.6); top = ry + 2.6;
+  }
+  if (tower) cross(u0 - 0.05, ry - 0.2, vm + s / 2, 0.8); else if (L > 6) cross(u1 - 0.1, ry - 0.2, vm, 0.6);
+  // the front door with a stone surround, a round-ish window above it; tall windows along the sides
+  const vc = tower ? (v0 + s - 0.35 + v1) / 2 : vm, dw = clampN(Wd * 0.26, 1.3, 3), dh = clampN(hn * 0.45, 2.3, 4.6);
+  box(B, f, u0 - 0.12, u0 + 0.02, 0, dh + 0.35, vc - dw / 2 - 0.35, vc + dw / 2 + 0.35, STONE);
+  box(B, f, u0 - 0.18, u0 - 0.1, 0, dh, vc - dw / 2, vc + dw / 2, WOOD);
+  if (hn > dh + 2.2) box(B, f, u0 - 0.16, u0 - 0.08, dh + 0.8, dh + 1.8, vc - 0.5, vc + 0.5, GLASS);
+  const wTop = Math.min(hn - 0.9, 7), wBot = Math.max(2.2, wTop - 3.4);
+  if (wTop - wBot > 1) for (let u = u0 + (tower ? s : 0) + 2.4; u < u1 - 1.6; u += 3.6) {
+    box(B, f, u - 0.42, u + 0.42, wBot, wTop, v0 - 0.08, v0 + 0.02, GLASS); box(B, f, u - 0.42, u + 0.42, wBot, wTop, v1 - 0.02, v1 + 0.08, GLASS);
+  }
+  return top;
+}
+// churches, supermarkets and schools: their colour on the minimap, the sign above them, and the names on it
+const KINDS = { c: { mini: '#8e5bbf', sign: '#7a4aa8', icon: '⛪' }, s: { mini: '#e08a1e', sign: '#d9730d', icon: '🛒' }, e: { mini: '#3d7fd0', sign: '#2f69b5', icon: '🏫' } };
+const places = [];
+
 // buildings that exist in OpenStreetMap: real footprints
 for (const b of MAP.buildings) {
   era(!!b.f);
@@ -742,7 +800,12 @@ for (const b of MAP.buildings) {
   const big = Math.abs(area) > 400, tall = b.l >= 3, foot = Math.min(-0.3, low - B.base - 0.3);
   const h = b.l ? b.l * 3.1 : big ? 7 : (rand() < 0.55 ? 6.2 : 3.2);
   const wall = C(big ? pick(['#d9d6cf', '#cfd5d8', '#e2ddd0']) : pick(WALLS)), roof = C(big || tall ? '#8d9296' : pick(ROOFS));
-  if (!b.x) {                                                  // (x: part of the castle, drawn in stone by castelo.js)
+  let top = 0;
+  if (b.k === 'c' && !b.x) {                                   // a church: its own model (once, where OpenStreetMap has the same church twice)
+    if (!places.some(q => q.k === 'c' && Math.hypot(q.x - cx, q.z - cz) < 15)) top = church(pts, cx, cz, foot);
+    miniBuildings.push({ pts, c: KINDS.c.mini });
+  }
+  else if (!b.x) {                                             // (x: part of the castle, drawn in stone by castelo.js)
   for (let i = 0; i < n; i++) {
     const p = pts[i], q = pts[(i + 1) % n];
     B.quad([p.x, foot, p.z], [q.x, foot, q.z], [q.x, h, q.z], [p.x, h, p.z], wall);
@@ -761,8 +824,9 @@ for (const b of MAP.buildings) {
     for (let i = 0; i < n; i++) { const j = (i + 1) % n; B.quad([pts[i].x, h, pts[i].z], [pts[j].x, h, pts[j].z], [inner[j].x, h + 1.7, inner[j].z], [inner[i].x, h + 1.7, inner[i].z], roof); }
     flatPoly(B, inner, h + 1.7, roof);
   }
-  miniBuildings.push({ pts, c: '#8b8f96' });
+  miniBuildings.push({ pts, c: b.k ? KINDS[b.k].mini : '#8b8f96' });
   }
+  if (b.k) places.push({ k: b.k, n: b.n, x: cx, z: cz, y: B.base + Math.max(top, h + (big || tall ? 0 : 1.7)) });
   blobs.push({ x: cx, z: cz, r: Math.max(...pts.map(p => Math.hypot(p.x - cx, p.z - cz))), fresh: !!b.f });
   const k = Math.floor(cx / OG) * 8192 + Math.floor(cz / OG), c = osmGrid.get(k); if (c) c.push({ x: cx, z: cz, f: b.f }); else osmGrid.set(k, [{ x: cx, z: cz, f: b.f }]);
 }
@@ -1006,6 +1070,27 @@ function addMarker(text, colour, x, z, y) {
   scene.add(group, beam);
   markers.push({ group, gem, y });
 }
+// signs above churches, supermarkets and schools (the buildings of one school, or of one church, share a sign); seen from up to SIGN_FAR away
+const SIGN_FAR = 650, signs = [];
+{
+  const groups = [];
+  for (const p of places) {
+    const g = groups.find(g => g.k === p.k && (g.n === p.n && Math.hypot(g.x - p.x, g.z - p.z) < 150 || p.k === 'c' && Math.hypot(g.x - p.x, g.z - p.z) < 25));
+    if (g) { if (p.n.length > g.n.length) g.n = p.n; g.m.push(p); g.x = g.m.reduce((s, q) => s + q.x, 0) / g.m.length; g.z = g.m.reduce((s, q) => s + q.z, 0) / g.m.length; g.y = Math.max(g.y, p.y); }
+    else groups.push({ k: p.k, n: p.n, x: p.x, z: p.z, y: p.y, m: [p] });
+  }
+  for (const g of groups) {
+    const K = KINDS[g.k], text = K.icon + ' ' + g.n, cv = document.createElement('canvas'), cx = cv.getContext('2d'), font = 'bold 40px system-ui, "Segoe UI Emoji", sans-serif';
+    cx.font = font; const w = Math.ceil(cx.measureText(text).width) + 48; cv.width = w; cv.height = 68;
+    cx.fillStyle = K.sign; cx.beginPath(); cx.roundRect(4, 4, w - 8, 60, 20); cx.fill();
+    cx.font = font; cx.fillStyle = '#fff'; cx.textAlign = 'center'; cx.textBaseline = 'middle'; cx.fillText(text, w / 2, 36);
+    const tex = new THREE.CanvasTexture(cv); tex.colorSpace = THREE.SRGBColorSpace;
+    const sp = new THREE.Sprite(new THREE.SpriteMaterial({ map: tex, sizeAttenuation: false, fog: false }));
+    sp.scale.set(0.045 * w / 68, 0.045, 1); sp.position.set(g.x, g.y + 3, g.z); sp.visible = false; scene.add(sp);
+    signs.push(sp);
+  }
+}
+function signsStep() { for (const s of signs) s.visible = !indoor && Math.hypot(s.position.x - camera.position.x, s.position.z - camera.position.z) < SIGN_FAR; }
 addMarker('Casa', '#ff8a1f', H.cx, H.cz, 11);
 addMarker('Tiago', '#2f7fe0', TIAGO.cx, TIAGO.cz, TIAGO.top + 5);
 addMarker('Castelo', '#9a6a3a', CASTLE.x, CASTLE.z, 26);
@@ -1607,7 +1692,7 @@ function step(dt) {
 
   sun.position.set(st.x + SUN.x, st.y + 120, st.z + SUN.z); sun.target.position.set(st.x, st.y, st.z); sun.target.updateMatrixWorld();
   const t = performance.now() / 1000;
-  petStep(t); tvStep(t); doorMarksStep(t);
+  petStep(t); tvStep(t); doorMarksStep(t); signsStep();
   for (const m of markers) { m.gem.rotation.y = t * 1.5; m.group.position.y = m.y + Math.sin(t * 2) * 0.5; }
   clouds.position.x = (t * 2) % 400;
 
@@ -1621,7 +1706,7 @@ function tick(now) {
   requestAnimationFrame(tick);
 }
 requestAnimationFrame(tick);
-window.__game = { buildMs: Math.round(performance.now() - T_START), THREE, scene, camera, renderer, st, car, bike, getRide: () => ride, TOP_SPEED, H, TIAGO, segs, roads, near, keepOnRoad, onSurface, floorAt, bridges, CASTLE, AMOR, drawn, height, mission, tiago, graph, startMission, drawHud, isDriving: () => driving, isIndoor: () => indoor, getTalk: () => talk, enterFlat, leaveFlat, FLAT, SOFA, follow, setDriving: v => { driving = v; }, step, goHome };   // handy for debugging in the console
+window.__game = { buildMs: Math.round(performance.now() - T_START), places, signs, THREE, scene, camera, renderer, st, car, bike, getRide: () => ride, TOP_SPEED, H, TIAGO, segs, roads, near, keepOnRoad, onSurface, floorAt, bridges, CASTLE, AMOR, drawn, height, mission, tiago, graph, startMission, drawHud, isDriving: () => driving, isIndoor: () => indoor, getTalk: () => talk, enterFlat, leaveFlat, FLAT, SOFA, follow, setDriving: v => { driving = v; }, step, goHome };   // handy for debugging in the console
 </script>
 </body>
 </html>

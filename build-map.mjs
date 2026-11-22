@@ -48,8 +48,17 @@ const closedRing = geom => {
   if (n < 4 || pts[0][0] !== pts[n - 1][0] || pts[0][1] !== pts[n - 1][1]) return null;
   return pts.slice(0, -1);
 };
+// what a building is, for the ones the game shows apart: k = 'c' church or chapel, 's' supermarket, 'e' school or kindergarten; n = its name
+function kind(t) {
+  if (t.amenity === 'place_of_worship' && t.religion !== 'muslim' && t.religion !== 'jewish' || ['church', 'chapel', 'cathedral'].includes(t.building))
+    return { k: 'c', n: t.name || t.old_name || (t.building === 'chapel' ? 'Capela' : 'Igreja') };
+  if (t.shop === 'supermarket') return { k: 's', n: t.brand || t.name || 'Supermercado' };
+  if (['school', 'kindergarten'].includes(t.building) || ['school', 'kindergarten'].includes(t.amenity))
+    return { k: 'e', n: t.name || (t.building === 'kindergarten' || t.amenity === 'kindergarten' ? 'Jardim de Infância' : 'Escola') };
+  return {};
+}
 function area(t, ring, levels, fresh) {
-  if (t.building) out.buildings.push({ p: ring, l: levels, ...(stone(t, ring) ? { x: 1 } : {}), ...(fresh ? { f: 1 } : {}) });   // x: drawn in stone, from castle.blocks
+  if (t.building) out.buildings.push({ p: ring, l: levels, ...(stone(t, ring) ? { x: 1 } : {}), ...(fresh ? { f: 1 } : {}), ...kind(t) });   // x: drawn in stone, from castle.blocks
   else if (t.leisure === 'swimming_pool') out.pools.push(ring);
   else if (t.natural === 'water') out.water.push(ring);
   else if (t.landuse === 'forest') out.forest.push(ring);
