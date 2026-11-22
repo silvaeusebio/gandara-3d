@@ -105,7 +105,7 @@
 
 <script src="map-data.js?v=5"></script>
 <script src="lavradios.js?v=5"></script>
-<script src="tiago.js?v=5"></script>
+<script src="tiago.js?v=6"></script>
 <script src="castelo.js?v=5"></script>
 <script src="amor.js?v=2"></script>
 <script type="module">
@@ -1064,7 +1064,7 @@ function petStep(t) {                    // it walks very slowly up and down, be
   pet.position.set(p.x, FLAT.y, p.z); pet.rotation.y = Math.atan2((P.a1 - P.a0) * dir, (P.b1 - P.b0) * dir);
 }
 // Tiago is at home, on the sofa, watching television. During the mission you call him (Enter next to him) and he follows you.
-const SOFA = FLAT.spot(4.98, 9.6), follow = { on: false, trail: [] };
+const SOFA = FLAT.sofa, follow = { on: false, trail: [] };
 function tiagoOnSofa() { follow.on = false; tiago.home = true; tiago.group.visible = true; placeTiago(SOFA.x, SOFA.z, FLAT.heading, 0, FLAT.y - 0.14); tiago.sit(); }
 function tiagoFollows(x, z) {            // he stands at (x, z) and from now on walks where you walked, a little behind
   follow.on = true; follow.trail = []; tiago.home = false; tiago.group.visible = true; placeTiago(x, z, st.heading, 0, indoor ? FLAT.y : undefined);
@@ -1106,7 +1106,7 @@ function offerMission() {                // you tell him you came to fetch him; 
 }
 // the television: the picture changes and lights the room
 const tv = new THREE.Mesh(new THREE.PlaneGeometry(1.4, 0.78), new THREE.MeshBasicMaterial({ color: '#3a6ea5' })), tvLight = new THREE.PointLight('#9fc4ff', 0, 9, 1.6);
-{ const p = FLAT.spot(7.975, 9.65), q = FLAT.spot(7.3, 9.65); tv.position.set(p.x, FLAT.y + 1.06, p.z); tv.rotation.y = -Math.PI / 2; tvLight.position.set(q.x, FLAT.y + 1.1, q.z); tvLight.visible = false; scene.add(tv, tvLight); }
+{ const p = FLAT.tv.at, q = FLAT.tv.light; tv.position.set(p.x, FLAT.y + 1.06, p.z); tv.rotation.y = -Math.PI / 2; tvLight.position.set(q.x, FLAT.y + 1.1, q.z); tvLight.visible = false; scene.add(tv, tvLight); }
 const TV_COLOURS = ['#3a6ea5', '#c9d6e8', '#7aa64f', '#d9a441', '#b85a4a', '#5e4b8a', '#e6e2d6', '#2f8f9d'].map(C);
 function tvStep(t) { const c = TV_COLOURS[Math.floor(t / 0.9) % TV_COLOURS.length]; tv.material.color.copy(c); tvLight.color.copy(c); tvLight.intensity = indoor ? 4.5 + Math.sin(t * 13) * 0.8 : 0; }
 // where you go in and out: a glowing ring on the ground with an arrow above it, at the door of the building and at the door of the flat
@@ -1155,7 +1155,7 @@ function enterFlat() {                   // up to the flat: you arrive in the ha
   for (const l of flatLamps.concat(tvLight)) l.visible = true;      // the lights of the flat only exist while you are in it
   camera.near = 0.08; camera.updateProjectionMatrix(); fade();
   for (const m of shellMeshes) m.visible = false;
-  if (follow.on) { const p = FLAT.spot(0.75, 1.8); tiagoFollows(p.x, p.z); }
+  if (follow.on) { const p = FLAT.follow; tiagoFollows(p.x, p.z); }
 }
 function leaveFlat() {                   // back down to the door of the building
   if (!indoor) return;
@@ -1371,7 +1371,7 @@ let toastT = 0;
 function toast(text, secs = 4.5) { toastEl.innerHTML = text; toastEl.style.display = ''; toastT = secs; }
 tiagoOnSofa();
 function startMission(level) {
-  const p = FLAT.spot(5.6, 9.6);                               // (called when you pick a level while talking to him) the clock starts and he follows you
+  const p = FLAT.start;                               // (called when you pick a level while talking to him) the clock starts and he follows you
   Object.assign(mission, { state: 'toTiago', level, t: 0, called: true, vehicle: null, field: distanceField(H.spawn), route: null, routeT: 0 });
   tiagoFollows(p.x, p.z);
   toast('Missão (' + LEVELS[level] + '): leva o Tiago a tua casa!');

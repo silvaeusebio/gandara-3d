@@ -83,75 +83,106 @@ window.buildTiago = function (ctx) {
   const c = f.xz(-1.75, 10), door = f.xz(-1.75, -1.2), bay = f.xz(2.3, -4.1);
   const inZone = (x, z) => x > X0 - 100 && x < X0 + 32 && z > Z0 - 24 && z < Z0 + 34;   // no random houses or trees here
   // =====================================================================================================
-  //  TIAGO'S FLAT (about 100 m2), from his own sketch "Casa Tiago.png". It is on the second floor of the east half of 546C;
-  //  the balcony (varanda) is at the BACK of the building, away from the avenue and the car park. Sketch coordinates: a = metres from the wall with the
-  //  entrance door (left of the sketch), b = metres from the wall on the avenue side (top of the sketch). Full-height walls and a ceiling:
-  //  you are inside it, and through the study window and from the balcony you see the real street.
+  //  TIAGO'S FLAT, to scale, from the architect's plan (Zambujarte, Bloco C, "Planta Cave 4", 1:100): fraction AQ, T0, "Cv4 Esq C", 96.60 m2.
+  //  Rooms and inside measures from the plan: open kitchen + dining 3.95 x 7.90 (30.70 m2), sala 3.00 x 4.95 (15.90 m2) behind a sliding door,
+  //  WC 1.725 x 2.675 (4.60 m2), circulação 4.70 wide (16.10 m2), arrumos 3.20 x 4.525 (15.10 m2), varanda 1.30 deep along the whole front.
+  //  Tiago's sketch ("Casa Tiago.png") says how he uses it: the sala is his bedroom, the arrumos his study, and the sofa and TV are in the open space.
+  //  It stays where it was in the game: second floor of the east half of 546C, the varanda at the BACK of the building, the entrance next to the stairs.
+  //  Plan coordinates: x = metres from the inner face of the end wall (the side away from the stairs), d = metres in from the inner face of the
+  //  varanda wall (d < 0 is the varanda). The game frame (a east from the entrance wall, b south) is a = XE - x, b = DB - d.
   // =====================================================================================================
-  const FW = 8.4, FL = 12.03, FV = 2.72, WALL = 2.6, floorY = groundC + FLOOR0 + FLOOR;
-  const xE = X0 + 1.2, zS = Z0 + DEPTH - FL - FV - 0.2;         // world x of the entrance wall (next to the stairs), world z of the wall on the avenue side
-  const fi = frame(xE, zS, 1, 0, 0, 1), inside = ctx.newBuilder();   // a runs east, b runs south: the balcony ends at the back wall of the block
+  const XE = 8.2, DB = 12.55, VD = 1.3, WALL = 2.6, floorY = groundC + FLOOR0 + FLOOR;
+  const xE = X0 + 1.2, zS = Z0 + DEPTH - 0.2 - (DB + 0.2 + VD);  // world x of the entrance wall, world z where b = 0; the varanda rail is 0.2 m inside the back of the block
+  const fi = frame(xE, zS, 1, 0, 0, 1), inside = ctx.newBuilder();
   inside.base = floorY;
-  const bx = (a0, a1, b0, b1, y0, y1, col) => box(inside, fi, a0, a1, y0, y1, b0, b1, C(col));
-  const tile = (a0, a1, b0, b1, col) => inside.quad(fi.pt(a0, 0.012, b0), fi.pt(a1, 0.012, b0), fi.pt(a1, 0.012, b1), fi.pt(a0, 0.012, b1), C(col));
-  bx(-0.1, FW + 0.1, -0.1, FL + FV, -0.25, 0, '#b9b6ae');                                  // the floor slab
+  const ab = (x0, x1, d0, d1) => [XE - x1, XE - x0, DB - d1, DB - d0];                     // a plan rectangle in game coordinates
+  const spot = (a, b) => ({ x: xE + a, z: zS + b }), at = (x, d) => spot(XE - x, DB - d);     // a point, in game / plan coordinates
+  const R = 0.28, solid = [];                                // things you cannot walk through, in game coordinates [a0, a1, b0, b1]
+  const Q = (x0, x1, d0, d1, y0, y1, col, hard) => {         // a box in plan coordinates; hard: it stops you
+    const [a0, a1, b0, b1] = ab(x0, x1, d0, d1);
+    if (col) box(inside, fi, a0, a1, y0, y1, b0, b1, C(col));
+    if (hard) solid.push([a0, a1, b0, b1]);
+  };
+  const tile = (x0, x1, d0, d1, col) => { const [a0, a1, b0, b1] = ab(x0, x1, d0, d1);
+    inside.quad(fi.pt(a0, 0.012, b0), fi.pt(a1, 0.012, b0), fi.pt(a1, 0.012, b1), fi.pt(a0, 0.012, b1), C(col)); };
+  const panes = [], pane = (x0, d0, x1, d1, y0, y1) => panes.push([at(x0, d0), at(x1, d1), at(x1, d1), at(x0, d0)].map((p, i) => [p.x, floorY + (i < 2 ? y0 : y1), p.z]));
+  const W = '#f0ede6', wall = (x0, x1, d0, d1) => Q(x0, x1, d0, d1, 0, WALL, W, true);
+  const over = (x0, x1, d0, d1, y0 = 2.1) => Q(x0, x1, d0, d1, y0, WALL, W);                 // the bit of wall above a door
+
+  Q(-0.4, XE + 0.2, -VD - 0.2, DB + 0.2, -0.25, 0, '#b9b6ae');                               // the floor slab
+  Q(-0.4, XE + 0.2, -VD - 0.2, DB + 0.2, WALL, WALL + 0.15, '#f6f4ef');                      // the ceiling (also over the varanda)
   const wood = '#c9a77a';
-  tile(0, 4.79, 0, 2.52, wood); tile(3.27, 4.79, 2.52, 5.45, wood); tile(4.79, FW, 0, 3.51, '#bf9d70');           // hall, corridor, study
-  tile(0, 3.27, 2.52, 5.45, '#bcd3d9'); tile(4.79, FW, 3.51, 6.6, '#dcd9d2'); tile(4.3, FW, 6.6, FL, wood); tile(4.3, 4.79, 5.45, 6.6, wood);   // bathroom, kitchen, living room
-  tile(0, 4.3, 5.45, FL, '#c4a070'); tile(0, FW, FL, FL + FV, '#a9a69d');                                          // bedroom, balcony
-  const wA = (b, a0, a1, th = 0.12) => bx(a0, a1, b - th / 2, b + th / 2, 0, WALL, '#f0ede6');   // a wall along a (at depth b)
-  const wB = (a, b0, b1, th = 0.12) => bx(a - th / 2, a + th / 2, b0, b1, 0, WALL, '#f0ede6');   // a wall along b
-  wA(0, 0, 5.5, 0.2); wA(0, 7.5, FW, 0.2); wB(FW, 0, FL, 0.2); wB(0, 0, 0.7, 0.2); wB(0, 1.6, FL, 0.2);   // outside walls (gaps: the study window and the entrance door)
-  wA(FL, 0, 1.3, 0.2); wA(FL, 2.9, 5.2, 0.2); wA(FL, 7.6, FW, 0.2);                         // front wall, with the two balcony doors
-  wB(4.79, 0, 1.3); wB(4.79, 2.2, 4.3); wA(3.51, 4.79, FW);                                 // study
-  wA(2.52, 0, 3.27); wB(3.27, 2.52, 3.5); wB(3.27, 4.4, 5.45);                              // bathroom
-  wA(5.45, 0, 3.37); wA(5.45, 4.22, 4.36); wB(4.3, 5.45, FL);                               // bedroom
-  bx(-0.04, 0.04, 0.7, 1.6, 0, 2.1, '#7a4a2c'); bx(0.04, 0.08, 1.42, 1.5, 0.98, 1.06, '#c9ccd1');   // the entrance door, with its handle
-  const over = (a0, a1, b0, b1, y0 = 2.1) => bx(a0, a1, b0, b1, y0, WALL, '#f0ede6');       // the bit of wall above a door or a window
-  over(-0.1, 0.1, 0.7, 1.6); over(4.73, 4.85, 1.3, 2.2); over(3.21, 3.33, 3.5, 4.4); over(3.37, 4.22, 5.39, 5.51); over(4.73, 4.85, 4.3, 5.45, 2.25);
-  over(1.3, 2.9, FL - 0.1, FL + 0.1); over(5.2, 7.6, FL - 0.1, FL + 0.1);
-  bx(5.5, 7.5, -0.1, 0.1, 0, 0.9, '#f0ede6'); over(5.5, 7.5, -0.1, 0.1, 2.15); bx(5.5, 7.5, -0.14, 0.14, 0.9, 0.94, '#d9d6cf');   // the study window, on the avenue side
-  for (const a of [5.5, 6.5, 7.46]) bx(a, a + 0.04, -0.03, 0.03, 0.94, 2.15, '#3a3d42');
-  bx(-0.1, FW + 0.1, -0.1, FL + FV, WALL, WALL + 0.15, '#f6f4ef');                           // the ceiling (also over the balcony)
-  const panes = [], pane = (a0, b0, a1, b1, y0, y1) => panes.push([fi.pt(a0, y0, b0), fi.pt(a1, y0, b1), fi.pt(a1, y1, b1), fi.pt(a0, y1, b0)].map(p => [p[0], p[1] + floorY, p[2]]));   // sheets of glass
-  pane(5.54, 0, 7.46, 0, 0.94, 2.15);
-  for (const a of [1.3, 2.86, 5.2, 7.56]) bx(a, a + 0.04, FL - 0.04, FL + 0.04, 0, 2.1, '#3a3d42');   // frames of the two balcony doors (they stand open)
-  bx(0, FW, FL + FV - 0.06, FL + FV, 1.0, 1.06, '#dfe6ea'); bx(0, FW, FL + FV - 0.06, FL + FV, 0, 0.08, '#3a3d42');                          // balcony rail: glass with a handrail
-  pane(0, FL + FV - 0.03, FW, FL + FV - 0.03, 0.08, 1.0);
-  wB(0, FL, FL + FV, 0.2); wB(FW, FL, FL + FV, 0.2);                                         // walls between this balcony and the neighbours'
-  // furniture, where the sketch has it
-  const solid = [];                                          // things you cannot walk through: [a0, a1, b0, b1]
-  const thing = (a0, a1, b0, b1, y0, y1, col, hard = true) => { bx(a0, a1, b0, b1, y0, y1, col); if (hard) solid.push([a0, a1, b0, b1]); };
-  thing(4.85, FW - 0.1, 3.57, 4.17, 0, 0.9, '#ecebe6'); thing(7.8, FW - 0.1, 4.17, 6.15, 0, 0.9, '#ecebe6');       // kitchen counter (cozinha)
-  bx(4.85, FW - 0.1, 3.57, 4.2, 0.9, 0.94, '#3a3d42'); bx(7.77, FW - 0.1, 4.17, 6.15, 0.9, 0.94, '#3a3d42');
-  bx(5.4, 6.0, 3.66, 4.08, 0.94, 0.96, '#9aa0a6'); bx(6.6, 7.3, 3.66, 4.08, 0.94, 0.96, '#17191c');               // sink and hob
-  thing(4.75, 6.35, 5.62, 6.51, 0.7, 0.76, '#a8794a');                                                               // table (mesa)
-  for (const [a, b] of [[4.82, 5.69], [6.2, 5.69], [4.82, 6.36], [6.2, 6.36]]) bx(a, a + 0.08, b, b + 0.08, 0, 0.7, '#8a6238');
-  thing(4.54, 6.29, 7.14, 7.99, 0, 0.42, '#5f6b7a'); thing(4.54, 5.13, 7.99, 10.98, 0, 0.42, '#5f6b7a');           // L-shaped sofa (sofá), facing the TV
-  bx(4.54, 6.29, 7.14, 7.34, 0.42, 0.85, '#515c69'); bx(4.54, 4.74, 7.34, 10.98, 0.42, 0.85, '#515c69');
-  for (let b = 8.05; b < 10.9; b += 0.97) bx(4.76, 5.1, b, b + 0.9, 0.42, 0.52, '#74808f');
-  bx(5.2, 6.24, 7.38, 7.95, 0.42, 0.52, '#74808f');
-  thing(7.85, FW - 0.1, 8.32, 10.96, 0, 0.5, '#5a4632'); bx(8.0, 8.07, 8.9, 10.4, 0.62, 1.5, '#111316'); bx(7.99, 8.0, 8.95, 10.35, 0.67, 1.45, '#22364d');   // TV
-  thing(5.74, 6.37, 1.14, 2.9, 0.7, 0.75, '#b08a5a'); bx(5.78, 5.84, 1.2, 1.26, 0, 0.7, '#6b4f2e'); bx(6.27, 6.33, 2.78, 2.84, 0, 0.7, '#6b4f2e');   // desk (escritório)
-  bx(5.78, 5.84, 2.78, 2.84, 0, 0.7, '#6b4f2e'); bx(6.27, 6.33, 1.2, 1.26, 0, 0.7, '#6b4f2e'); bx(5.85, 5.92, 1.6, 2.4, 0.75, 1.2, '#111316');
-  thing(6.57, 7.02, 2.25, 2.68, 0.4, 0.48, '#2a2d31'); bx(6.96, 7.02, 2.25, 2.68, 0.48, 0.95, '#2a2d31'); bx(6.76, 6.82, 2.43, 2.49, 0, 0.4, '#5b6066');   // desk chair
-  // not in the sketch, added so that the rooms are not empty: a bed, and the bathroom fittings
-  thing(0.25, 2.35, 7.9, 9.7, 0, 0.45, '#e8e4dc'); bx(0.12, 0.25, 7.85, 9.75, 0, 0.95, '#8a6238'); bx(0.9, 2.35, 7.9, 9.7, 0.45, 0.5, '#6f8fb0'); bx(0.32, 0.8, 8.05, 8.7, 0.45, 0.56, '#f7f6f1'); bx(0.32, 0.8, 8.9, 9.55, 0.45, 0.56, '#f7f6f1');
-  thing(0.2, 0.85, 2.95, 3.45, 0, 0.42, '#f7f6f1'); bx(0.12, 0.3, 2.95, 3.45, 0.42, 0.8, '#f7f6f1'); thing(0.14, 0.6, 4.05, 4.7, 0.75, 0.85, '#f7f6f1'); thing(1.95, 3.15, 4.4, 5.36, 0, 0.1, '#d5e9f0');
-  // where you can stand: rooms and doorways, already shrunk by the size of a person
-  const walk = [[0.34, 4.45, 0.34, 2.18], [3.61, 4.45, 0.34, 5.11], [5.13, 8.06, 0.34, 3.17], [0.34, 2.93, 2.86, 5.11], [5.13, 8.06, 3.85, 11.69], [4.64, 8.06, 4.64, 11.69],
-    [3.61, 5.2, 4.64, 5.11], [0.34, 3.96, 5.79, 11.69], [0.34, 8.06, 12.37, 14.41],
-    [4.3, 5.3, 1.58, 1.92], [2.8, 3.8, 3.78, 4.12], [3.65, 3.94, 5.0, 5.9], [5.48, 7.32, 11.5, 12.5], [1.58, 2.62, 11.5, 12.5]];
-  const R = 0.28, pet = { a0: 6.75, b0: 6.95, a1: 7.25, b1: 7.95, a: 6.75, b: 6.95 };      // the giant tortoise walks up and down here
+  tile(0, 3.95, 0, 7.9, wood); tile(3.95, 5.2, 4.95, 7.9, wood); tile(3.325, 5.2, 7.9, 8.35, wood); tile(3.325, XE, 8.35, 10.65, wood);   // open space, corridor, circulação
+  tile(4.075, 7.075, 0, 4.95, '#c4a070'); tile(5.325, 7.075, 5.5, 8.225, '#bcd3d9'); tile(0, 3.2, 8.025, DB, '#bf9d70');   // sala (bedroom), WC, arrumos (study)
+  tile(0, 7.075, -VD, 0, '#a9a69d');                                                                                      // varanda
+  // outside walls
+  wall(-0.4, 0, -VD - 0.2, DB + 0.2);                                         // the end wall of the block
+  wall(7.075, 7.425, -VD - 0.2, 8.35);                                        // wall shared with the next flat (0.35)
+  wall(XE, XE + 0.2, 8.225, 9.2); wall(XE, XE + 0.2, 10.1, 10.85); over(XE, XE + 0.2, 9.2, 10.1);   // entrance wall, with the front door
+  wall(3.2, XE + 0.2, 10.65, 10.85); wall(-0.4, 3.325, DB, DB + 0.2);         // back walls of the circulação and of the arrumos
+  // the varanda wall: two glazed doors, the kitchen's and the sala's, each half open
+  wall(0, 0.5, -0.2, 0); wall(3.45, 4.4, -0.2, 0); wall(6.75, 7.075, -0.2, 0); over(0.5, 3.45, -0.2, 0); over(4.4, 6.75, -0.2, 0);
+  for (const [o0, o1, g1] of [[0.5, 3.45, 2.0], [4.4, 6.75, 5.6]]) {
+    Q(g1, o1, -0.12, -0.08, 0, 2.1, null, true); pane(g1, -0.1, o1, -0.1, 0.05, 2.05);           // the fixed half: glass
+    for (const x of [o0, g1 - 0.02, o1 - 0.04]) Q(x, x + 0.04, -0.14, -0.06, 0, 2.1, '#3a3d42');
+  }
+  // inside walls
+  wall(3.95, 4.075, 0, 1.3); wall(3.95, 4.075, 2.9, 4.95); over(3.95, 4.075, 1.3, 2.9);           // sala | kitchen, with the sliding door (open)
+  Q(4.075, 4.12, 2.95, 4.5, 0, 2.1, '#d8d2c4');                                                   // the sliding leaf, pushed back
+  wall(5.2, 7.075, 4.95, 5.5); over(4.075, 5.2, 4.95, 5.075);                                      // sala | WC, and the sala's door from the corridor
+  wall(5.2, 5.325, 5.5, 6.9); wall(5.2, 5.325, 7.7, 8.35); over(5.2, 5.325, 6.9, 7.7);            // WC door, from the corridor
+  wall(5.2, XE, 8.225, 8.35);                                                                      // WC | circulação
+  wall(0, 3.325, 7.9, 8.025);                                                                      // kitchen | arrumos
+  wall(3.2, 3.325, 8.025, 8.45); wall(3.2, 3.325, 9.25, DB); over(3.2, 3.325, 8.45, 9.25);        // arrumos door
+  Q(XE + 0.04, XE + 0.12, 9.2, 10.1, 0, 2.1, '#7a4a2c'); Q(XE, XE + 0.04, 9.95, 10.03, 0.98, 1.06, '#c9ccd1');   // the front door, with its handle
+  // the varanda: glass rail with a handrail, walls to the neighbours
+  Q(0, 7.075, -VD - 0.06, -VD, 1.0, 1.06, '#dfe6ea', true); Q(0, 7.075, -VD - 0.06, -VD, 0, 0.08, '#3a3d42');
+  pane(0, -VD - 0.03, 7.075, -VD - 0.03, 0.08, 1.0);
+  // ---------- furniture: where Tiago's sketch has it, at real size ----------
+  const thing = (x0, x1, d0, d1, y0, y1, col, hard = true) => Q(x0, x1, d0, d1, y0, y1, col, hard);
+  // living corner of the open space: TV on the end wall, L-shaped sofa facing it
+  thing(0, 0.45, 1.2, 3.3, 0, 0.5, '#5a4632'); Q(0.13, 0.2, 1.55, 2.95, 0.62, 1.5, '#111316');
+  thing(2.3, 3.15, 0.7, 3.3, 0, 0.42, '#5f6b7a'); thing(1.45, 2.3, 0.7, 1.3, 0, 0.42, '#5f6b7a');
+  Q(2.95, 3.15, 0.7, 3.3, 0.42, 0.85, '#515c69'); Q(1.45, 2.3, 0.7, 0.9, 0.42, 0.85, '#515c69');
+  for (let d = 0.95; d < 3.25; d += 0.78) Q(2.35, 2.9, d, d + 0.72, 0.42, 0.52, '#74808f');
+  Q(1.5, 2.3, 0.95, 1.28, 0.42, 0.52, '#74808f');
+  // dining table (mesa)
+  thing(1.0, 2.6, 4.0, 4.9, 0.7, 0.76, '#a8794a');
+  for (const [x, d] of [[1.07, 4.07], [2.45, 4.07], [1.07, 4.75], [2.45, 4.75]]) Q(x, x + 0.08, d, d + 0.08, 0, 0.7, '#8a6238');
+  // kitchen (cozinha): L of counters, hob, sink, tall fridge
+  thing(0, 0.62, 5.3, 7.9, 0, 0.9, '#ecebe6'); thing(0.62, 2.9, 7.28, 7.9, 0, 0.9, '#ecebe6');
+  Q(0, 0.65, 5.3, 7.9, 0.9, 0.94, '#3a3d42'); Q(0.62, 2.9, 7.25, 7.9, 0.9, 0.94, '#3a3d42');
+  Q(0.06, 0.56, 5.8, 6.45, 0.94, 0.96, '#17191c'); Q(1.4, 2.1, 7.36, 7.82, 0.94, 0.96, '#9aa0a6');
+  thing(2.9, 3.55, 7.25, 7.9, 0, 2.0, '#d9dbdc');
+  // the sala, used as his bedroom: bed with its head on the wall to the next flat
+  thing(5.05, 7.0, 1.7, 3.3, 0, 0.45, '#e8e4dc'); Q(6.93, 7.075, 1.65, 3.35, 0, 0.95, '#8a6238'); Q(5.05, 6.35, 1.7, 3.3, 0.45, 0.5, '#6f8fb0');
+  Q(6.4, 6.88, 1.8, 2.45, 0.45, 0.56, '#f7f6f1'); Q(6.4, 6.88, 2.55, 3.2, 0.45, 0.56, '#f7f6f1');
+  thing(6.6, 7.05, 1.15, 1.6, 0, 0.5, '#8a6238');
+  // WC: shower, washbasin, toilet
+  Q(5.4, 6.4, 5.55, 6.45, 0, 0.1, '#d5e9f0'); thing(6.6, 7.05, 6.0, 6.6, 0.75, 0.85, '#f7f6f1'); Q(6.95, 7.06, 6.0, 6.6, 0, 0.75, '#f7f6f1');
+  thing(6.55, 7.05, 7.3, 7.75, 0, 0.42, '#f7f6f1'); Q(6.88, 7.06, 7.3, 7.75, 0.42, 0.8, '#f7f6f1');
+  // the arrumos, used as his study (escritório): desk and chair, shelves at the back
+  thing(0.05, 0.75, 9.6, 11.4, 0.7, 0.75, '#b08a5a');
+  for (const [x, d] of [[0.1, 9.66], [0.63, 9.66], [0.1, 11.28], [0.63, 11.28]]) Q(x, x + 0.06, d, d + 0.06, 0, 0.7, '#6b4f2e');
+  Q(0.18, 0.25, 10.1, 10.9, 0.75, 1.2, '#111316');
+  thing(0.95, 1.4, 10.28, 10.71, 0.4, 0.48, '#2a2d31'); Q(1.34, 1.4, 10.28, 10.71, 0.48, 0.95, '#2a2d31'); Q(1.15, 1.21, 10.46, 10.52, 0, 0.4, '#5b6066');
+  thing(0.3, 2.8, 12.15, DB, 0, 2.0, '#d8cfbf');
+  for (const y of [0.5, 1.0, 1.5]) Q(0.3, 2.8, 12.1, 12.15, y, y + 0.03, '#a48f6c');
+  // ---------- where you can stand: inside the walls, and not on top of anything solid ----------
+  const [fa0, fa1, fb0, fb1] = ab(0, XE, -VD, DB);
+  const pet = { a0: XE - 1.1, b0: DB - 5.7, a1: XE - 1.1, b1: DB - 6.8, a: XE - 1.1, b: DB - 5.7 };   // the giant tortoise walks up and down the kitchen
   function allowed(x, z) {                                   // can a person stand at this point of the flat?
     const a = x - xE, b = z - zS;
-    if (!walk.some(r => a >= r[0] && a <= r[1] && b >= r[2] && b <= r[3])) return false;
+    if (a < fa0 + R || a > fa1 - R || b < fb0 + R || b > fb1 - R) return false;
     if (solid.some(r => a > r[0] - R && a < r[1] + R && b > r[2] - R && b < r[3] + R)) return false;
     return Math.hypot(a - pet.a, b - pet.b) > 0.75;
   }
-  const spot = (a, b) => ({ x: xE + a, z: zS + b });
-  const lamps = [spot(6.4, 9.2), spot(6.4, 4.9), spot(2.1, 8.6), spot(2.4, 1.3), spot(1.6, 4.0), spot(6.5, 1.8)];   // ceiling lamps: living room, kitchen, bedroom, hall, bathroom, study
-  const flat = { y: floorY, ceiling: WALL, panes, lamps, entry: spot(0.75, 1.15), heading: Math.PI / 2, allowed, pet, spot,
-    atDoor: (x, z) => Math.hypot(xE + 0.75 - x, zS + 1.15 - z) < 1.1 };
+  const lamps = [at(2.0, 2.3), at(1.8, 6.2), at(5.6, 2.5), at(5.8, 9.5), at(6.2, 6.9), at(1.6, 10.3)];   // ceiling lamps: living, kitchen, bedroom, circulação, WC, study
+  const entry = at(XE - 0.6, 9.65);
+  const flat = { y: floorY, ceiling: WALL, panes, lamps, entry, heading: Math.PI / 2, allowed, pet, spot,
+    sofa: at(2.72, 2.3),                                     // where Tiago sits (facing the TV, which is towards +a: heading pi/2)
+    tv: { at: at(0.205, 2.25), light: at(0.9, 2.25) },       // the picture on the TV, and the light it throws
+    follow: at(XE - 1.3, 9.9), start: at(1.9, 2.3),          // where Tiago stands when you come in with him, and when he gets up from the sofa
+    atDoor: (x, z) => Math.hypot(entry.x - x, entry.z - z) < 1.1 };
   return { cx: c.x, cz: c.z, top: TOP, door, bay, obstacles, inZone, shell, inside, flat };
 };
